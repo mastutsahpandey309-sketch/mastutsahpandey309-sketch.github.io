@@ -1,278 +1,280 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Lokesh Lawda Limited | Official Website</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital Co-Op | Resource Sharing Network</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <style>
+        :root {
+            --primary: #2ecc71;
+            --dark: #0f172a;
+            --light: #f8fafc;
+            --accent: #38bdf8;
+            --card-bg: rgba(30, 41, 59, 0.7);
+        }
 
-<style>
-:root{
-  --primary:#0a1a2f;
-  --secondary:#1f3b5c;
-  --accent:#4aa3ff;
-  --text:#e6e6e6;
-  --muted:#9aa4b2;
-}
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-*{box-sizing:border-box;margin:0;padding:0}
-body{
-  font-family: "Segoe UI", Roboto, Arial, sans-serif;
-  background:linear-gradient(180deg,var(--primary),#050b14);
-  color:var(--text);
-  line-height:1.6;
-}
+        body {
+            background-color: var(--dark);
+            color: var(--light);
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            overflow-x: hidden;
+            line-height: 1.6;
+        }
 
-header{
-  padding:24px 8%;
-  display:flex;
-  align-items:center;
-  justify-content:space-between;
-  border-bottom:1px solid rgba(255,255,255,0.08);
-}
+        #canvas-container {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: -1;
+        }
 
-.logo{
-  display:flex;
-  align-items:center;
-  gap:12px;
-}
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+            padding: 0 2rem;
+        }
 
-.logo svg{
-  width:48px;
-  height:48px;
-}
+        header {
+            padding: 2rem 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
 
-.logo h1{
-  font-size:20px;
-  letter-spacing:1px;
-}
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 800;
+            letter-spacing: -1px;
+            text-transform: uppercase;
+        }
 
-nav a{
-  margin-left:24px;
-  color:var(--muted);
-  text-decoration:none;
-  font-size:14px;
-}
+        .logo span {
+            color: var(--primary);
+        }
 
-nav a:hover{color:var(--accent)}
+        .node-badge {
+            background: rgba(46, 204, 113, 0.2);
+            border: 1px solid var(--primary);
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: bold;
+        }
 
-section{
-  padding:80px 8%;
-}
+        .hero {
+            text-align: center;
+            padding: 6rem 0 4rem;
+        }
 
-.hero{
-  text-align:center;
-  padding-top:100px;
-}
+        h1 {
+            font-size: 4rem;
+            margin-bottom: 1.5rem;
+            line-height: 1.1;
+        }
 
-.hero h2{
-  font-size:44px;
-  margin-bottom:16px;
-}
+        .highlight {
+            color: var(--primary);
+            text-shadow: 0 0 20px rgba(46, 204, 113, 0.4);
+        }
 
-.hero p{
-  max-width:700px;
-  margin:auto;
-  color:var(--muted);
-  font-size:18px;
-}
+        .subtitle {
+            font-size: 1.25rem;
+            color: #94a3b8;
+            max-width: 600px;
+            margin: 0 auto 3rem;
+        }
 
-.hero .stats{
-  display:flex;
-  justify-content:center;
-  gap:40px;
-  margin-top:40px;
-  flex-wrap:wrap;
-}
+        /* The Creative Explanation Grid */
+        .explanation-card {
+            background: var(--card-bg);
+            border: 1px solid rgba(255,255,255,0.1);
+            backdrop-filter: blur(12px);
+            border-radius: 24px;
+            padding: 3rem;
+            display: grid;
+            grid-template-columns: 1fr auto 1fr auto 1fr;
+            align-items: center;
+            gap: 1.5rem;
+            margin-bottom: 4rem;
+        }
 
-.stat{
-  text-align:center;
-}
+        .step {
+            text-align: center;
+        }
 
-.stat h3{
-  font-size:28px;
-  color:var(--accent);
-}
+        .step .icon {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            display: block;
+        }
 
-.card-grid{
-  display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
-  gap:24px;
-  margin-top:40px;
-}
+        .step h3 {
+            margin-bottom: 0.5rem;
+            color: var(--primary);
+        }
 
-.card{
-  background:rgba(255,255,255,0.05);
-  padding:24px;
-  border-radius:14px;
-  border:1px solid rgba(255,255,255,0.08);
-}
+        .step p {
+            font-size: 0.9rem;
+            color: #cbd5e1;
+        }
 
-.card h3{
-  margin-bottom:8px;
-}
+        .arrow {
+            font-size: 2rem;
+            color: rgba(255,255,255,0.2);
+            font-weight: 200;
+        }
 
-.card span{
-  font-size:13px;
-  color:var(--accent);
-}
+        .cta-container {
+            margin-top: 2rem;
+        }
 
-.services li{
-  list-style:none;
-  margin:10px 0;
-  color:var(--muted);
-}
+        .btn {
+            background: var(--primary);
+            color: white;
+            padding: 1.2rem 2.5rem;
+            border: none;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 15px -3px rgba(46, 204, 113, 0.3);
+        }
 
-footer{
-  padding:40px 8%;
-  border-top:1px solid rgba(255,255,255,0.08);
-  font-size:13px;
-  color:var(--muted);
-  text-align:center;
-}
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 20px 25px -5px rgba(46, 204, 113, 0.4);
+            background: #27ae60;
+        }
 
-.hidden{
-  opacity:0.4;
-  font-size:12px;
-  margin-top:10px;
-}
-</style>
+        @media (max-width: 768px) {
+            .explanation-card {
+                grid-template-columns: 1fr;
+            }
+            .arrow {
+                transform: rotate(90deg);
+                margin: 0.5rem 0;
+            }
+            h1 { font-size: 2.5rem; }
+        }
+    </style>
 </head>
-
 <body>
 
-<header>
-  <div class="logo">
-    <!-- Three LLL Logo -->
-    <svg viewBox="0 0 100 100">
-      <rect x="10" y="10" width="18" height="70" fill="#4aa3ff"/>
-      <rect x="41" y="10" width="18" height="70" fill="#4aa3ff"/>
-      <rect x="72" y="10" width="18" height="70" fill="#4aa3ff"/>
-    </svg>
-    <h1>Lokesh Lawda Limited</h1>
-  </div>
-  <nav>
-    <a href="#about">About</a>
-    <a href="#team">Leadership</a>
-    <a href="#services">Services</a>
-    <a href="#contact">Contact</a>
-  </nav>
-</header>
+    <div id="canvas-container"></div>
 
-<section class="hero">
-  <h2>Redefining Digital Labour</h2>
-  <p>
-    India’s first professionally unprofessional organization, driven by confidence,
-    corporate English, and unlimited unemployment potential.
-  </p>
+    <header class="container">
+        <div class="logo">Digital<span>Co-Op</span></div>
+        <div class="node-badge">Live Network: <span id="node-count">42</span> Nodes</div>
+    </header>
 
-  <div class="stats">
-    <div class="stat"><h3>1200+</h3><p>Excuses Generated</p></div>
-    <div class="stat"><h3>0</h3><p>Successful Deliveries</p></div>
-    <div class="stat"><h3>24×7</h3><p>Overthinking</p></div>
-  </div>
-</section>
+    <main class="container">
+        <section class="hero">
+            <h1>Pooling Resources.<br><span class="highlight">Threading Connections.</span></h1>
+            <p class="subtitle">A digital cooperative is like a communal well. You contribute a drop of your spare digital power, and in return, you have access to the whole ocean.</p>
+            
+            <div class="explanation-card">
+                <div class="step">
+                    <span class="icon">🧩</span>
+                    <h3>Contribute</h3>
+                    <p>Spare storage or GPU power you aren't using.</p>
+                </div>
+                <div class="arrow">→</div>
+                <div class="step">
+                    <span class="icon">🧶</span>
+                    <h3>Thread</h3>
+                    <p>Your resource is "stitched" into our global graph.</p>
+                </div>
+                <div class="arrow">→</div>
+                <div class="step">
+                    <span class="icon">🚀</span>
+                    <h3>Access</h3>
+                    <p>Unlock the combined speed of the entire network.</p>
+                </div>
+            </div>
 
-<section id="about">
-  <h2>About Us</h2>
-  <p class="hidden">
-    Lokesh Lawda Limited is a next‑generation digital workforce platform consisting
-    of highly motivated, under‑skilled youth who believe kaam se zyada
-    confidence zaroori hota hai.
-  </p>
-</section>
+            <div class="cta-container">
+                <button class="btn" onclick="addNode()">Join the Pool & Add a Node</button>
+            </div>
+        </section>
+    </main>
 
-<section id="team">
-  <h2>Leadership Team</h2>
-  <div class="card-grid">
+    <script>
+        let nodes = [];
+        let maxDistance = 180;
 
-    <div class="card">
-      <h3>Lokesh</h3>
-      <span>Founder & Core</span>
-      <p>
-        Company ka janmdata. Visionary, decision‑maker, and final blame holder.
-        Believes company tab chalti hai jab founder baitha ho.
-      </p>
-    </div>
+        function setup() {
+            let canvas = createCanvas(windowWidth, windowHeight);
+            canvas.parent('canvas-container');
+            
+            // Initial cluster
+            for (let i = 0; i < 42; i++) {
+                nodes.push(new Node(random(width), random(height)));
+            }
+        }
 
-    <div class="card">
-      <h3>Kshitij Dwivedi</h3>
-      <span>The Big Brain</span>
-      <p>
-        Ideas itne heavy ke implementation dab jaata hai.
-        Sochne mein expert, karne mein observer.
-      </p>
-    </div>
+        function draw() {
+            clear(); // Keeps the background transparent to see the CSS dark color
+            
+            for (let i = 0; i < nodes.length; i++) {
+                nodes[i].update();
+                nodes[i].display();
+                
+                for (let j = i + 1; j < nodes.length; j++) {
+                    let d = dist(nodes[i].pos.x, nodes[i].pos.y, nodes[j].pos.x, nodes[j].pos.y);
+                    if (d < maxDistance) {
+                        // Create the "Thread" effect
+                        stroke(46, 204, 113, map(d, 0, maxDistance, 150, 0));
+                        strokeWeight(1);
+                        line(nodes[i].pos.x, nodes[i].pos.y, nodes[j].pos.x, nodes[j].pos.y);
+                    }
+                }
+            }
+        }
 
-    <div class="card">
-      <h3>Paras Sahu</h3>
-      <span>Human Resource Management</span>
-      <p>
-        Human handling specialist.
-        Especially half of the population.
-        HR policies mood pe depend karti hain.
-      </p>
-    </div>
+        class Node {
+            constructor(x, y) {
+                this.pos = createVector(x, y);
+                this.vel = createVector(random(-0.5, 0.5), random(-0.5, 0.5));
+            }
 
-    <div class="card">
-      <h3>Utsah</h3>
-      <span>The Visionary</span>
-      <p>
-        Future mein jeeta hai, present mein milta nahi.
-        Vision clear hai, roadmap gayab.
-      </p>
-    </div>
+            update() {
+                this.pos.add(this.vel);
+                // Bounce off edges
+                if (this.pos.x < 0 || this.pos.x > width) this.vel.x *= -1;
+                if (this.pos.y < 0 || this.pos.y > height) this.vel.y *= -1;
+            }
 
-    <div class="card">
-      <h3>Priyanshu Tiwari</h3>
-      <span>True Engineer (Unsuccessful)</span>
-      <p>
-        Degree verified, results pending.
-        Engineer by syllabus, struggler by profession.
-      </p>
-    </div>
+            display() {
+                noStroke();
+                fill(46, 204, 113);
+                ellipse(this.pos.x, this.pos.y, 4, 4);
+            }
+        }
 
-    <div class="card">
-      <h3>Vivek Pal</h3>
-      <span>Choder Not Coder</span>
-      <p>
-        Code likhta hai jo compiler bhi hesitate kare.
-        Bugs ko features bolne ka experience.
-      </p>
-    </div>
+        function addNode() {
+            // Add a new node in the center area
+            nodes.push(new Node(random(width/3, 2*width/3), random(height/3, 2*height/3)));
+            
+            // Update the UI count
+            let countElement = document.getElementById('node-count');
+            countElement.innerText = nodes.length;
+            countElement.style.color = "#fff";
+            setTimeout(() => { countElement.style.color = "#2ecc71"; }, 500);
+        }
 
-  </div>
-</section>
-
-<section id="services">
-  <h2>Our Services</h2>
-  <ul class="services">
-    <li>Online Dehadi ki Majdoori</li>
-    <li>Portfolio dikhana, kaam nahi</li>
-    <li>Corporate English Confidence Boost</li>
-    <li>Deadline management (miss guaranteed)</li>
-    <li>Meetings without outcomes</li>
-  </ul>
-</section>
-
-<section id="contact">
-  <h2>Contact Us</h2>
-  <p>Email: support@lokeshlawdalimited.com</p>
-  <p>Office: Somewhere between hope and unemployment</p>
-  <p class="hidden">GST nahi hai, guts poore hain.</p>
-</section>
-
-<footer>
-  © 2026 Lokesh Lawda Limited. All Rights Reserved (emotionally).
-</footer>
-
-<script>
-  // harmless easter egg
-  document.addEventListener("keydown", e=>{
-    if(e.key==="L"){
-      console.log("LLL detected. Confidence increased.");
-    }
-  });
-</script>
-
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+        }
+    </script>
 </body>
 </html>
