@@ -82,7 +82,7 @@ function starVector(ra, dec) {
 }
 
 // Load real stars
-fetch("./data/stars_3000.json")
+fetch("./stars_3000.json")
 .then(r => r.json())
 .then(stars => {
   document.getElementById("status").textContent =
