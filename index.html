@@ -2,211 +2,492 @@
 <html lang="en">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1.0" />
-<title>360° Real Star Background</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Real Star Sky — Interactive</title>
 <style>
-  html,body { height:100%; margin:0; background:#000; overflow:hidden; }
-  canvas { display:block; width:100vw; height:100vh; }
-  #info {
-    position:fixed; left:8px; bottom:8px;
-    color:#ddd; font-family:monospace; font-size:12px;
-    background:rgba(0,0,0,0.25); padding:6px 8px; border-radius:4px;
+  html,body { height:100%; margin:0; background:#000; font-family:monospace; color:#ddd; overflow:hidden; }
+  #canvas-container { position:absolute; inset:0; }
+  #ui {
+    position: absolute; left:16px; bottom:18px; z-index: 20;
+    background: rgba(0,0,0,0.25); padding:8px 10px; border-radius:8px;
+    color:#dfe6ea;
   }
+  .star-info {
+    position: absolute;
+    z-index: 40;
+    background: rgba(6,8,12,0.95);
+    color: #fff;
+    padding: 8px 10px;
+    border-radius: 8px;
+    pointer-events: auto;
+    font-size: 13px;
+    max-width: 240px;
+  }
+  .label {
+    color: white;
+    text-shadow: 0 0 4px rgba(0,0,0,0.9);
+    pointer-events: none;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  #hint { font-size:12px; opacity:0.9; }
 </style>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
 </head>
 <body>
-<canvas id="c"></canvas>
-<div id="info">Loading stars…</div>
+<div id="canvas-container"></div>
+<div id="ui">
+  <div><strong>REAL STAR SKY</strong></div>
+  <div id="status">Loading stars…</div>
+  <div id="hint">Touch a star to see details • Labels show for brightest stars</div>
+</div>
 
-<script>
-/*
-  Robust 360° equirectangular star map.
-  Expects stars_3000.json in repo root with objects having:
-    - ra  (hours OR degrees)
-    - dec (degrees)
-    - mag (visual magnitude)
-    - name (optional)
-*/
-const canvas = document.getElementById('c');
-const ctx = canvas.getContext('2d', { alpha: true });
-const info = document.getElementById('info');
+<!-- Info popup placeholder -->
+<div id="info-popup" class="star-info" style="display:none"></div>
 
-function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  canvas.width = Math.round(window.innerWidth * dpr);
-  canvas.height = Math.round(window.innerHeight * dpr);
-  canvas.style.width = window.innerWidth + 'px';
-  canvas.style.height = window.innerHeight + 'px';
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-}
-window.addEventListener('resize', resize);
-resize();
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 
-// Utility: clamp
-const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+/* ---------- Core scene ---------- */
+const container = document.getElementById('canvas-container');
 
-// Determine RA units and normalize RA -> degrees 0..360
-function normalizeRA(raVals) {
-  // If most values <= 24 -> treat as hours
-  const maxv = Math.max(...raVals.map(v => (isFinite(v) ? v : -Infinity)));
-  if (maxv <= 25) {
-    return raVals.map(v => v * 15); // hours -> degrees
-  }
-  // otherwise assume degrees; bring into 0..360
-  return raVals.map(v => ((v % 360) + 360) % 360);
-}
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+camera.position.set(0, 0, 35);
 
-// Magnitude -> apparent flux (log scale). We'll compute flux and then map to radius.
-function magToFlux(mag) {
-  // Standard: flux ∝ 10^(-0.4 * mag)
-  return Math.pow(10, -0.4 * mag);
-}
+const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+container.appendChild(renderer.domElement);
 
-// Draw routine (equirectangular): x = (ra_deg/360)*width, y = (90-dec)/180*height
-function drawStarsFlat(stars) {
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = 'black';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+const labelRenderer = new CSS2DRenderer();
+labelRenderer.setSize(window.innerWidth, window.innerHeight);
+labelRenderer.domElement.style.position = 'absolute';
+labelRenderer.domElement.style.top = '0px';
+labelRenderer.domElement.style.pointerEvents = 'none';
+container.appendChild(labelRenderer.domElement);
 
-  // compute fluxes, ignore invalid entries
-  const valid = stars.filter(s =>
-    s && isFinite(s.ra) && isFinite(s.dec) && isFinite(s.mag)
-  );
+/* ---------- Controls (no zoom) ---------- */
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.enableDamping = true;
+controls.enableZoom = false;         // user may not zoom
+controls.enablePan = false;
+controls.minPolarAngle = 0.1;
+controls.maxPolarAngle = Math.PI - 0.1;
 
-  if (valid.length === 0) {
-    info.textContent = 'No valid stars';
-    return;
-  }
+/* ---------- Earth (center) ---------- */
+const earthGroup = new THREE.Group();
+scene.add(earthGroup);
 
-  // Detect RA unit & normalize
-  const raVals = valid.map(s => Number(s.ra));
-  const raDegs = normalizeRA(raVals);
+const EARTH_R = 5;
+const texLoader = new THREE.TextureLoader();
+const earthMat = new THREE.MeshPhongMaterial({
+  map: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg'),
+  shininess: 5
+});
+const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 64), earthMat);
+earthGroup.add(earthMesh);
 
-  // Attach normalized RA degrees back to objects
-  for (let i = 0; i < valid.length; i++) valid[i]._raDeg = raDegs[i];
+// subtle light
+const ambient = new THREE.AmbientLight(0xffffff, 0.25);
+scene.add(ambient);
+const dir = new THREE.DirectionalLight(0xffffff, 0.6);
+dir.position.set(5,10,7);
+scene.add(dir);
 
-  // compute flux array (to normalise sizes)
-  const fluxes = valid.map(s => magToFlux(s.mag));
-  const fMin = Math.min(...fluxes);
-  const fMax = Math.max(...fluxes);
+/* ---------- Sky group (stars live here around Earth) ---------- */
+const skyGroup = new THREE.Group();
+earthGroup.add(skyGroup); // keep sky tied to earth for consistent observer frame
 
-  // Map flux -> radius (px). We use log-scaling and clamp.
-  // Choose min and max radius in px
-  const R_MIN = 0.6;
-  const R_MAX = 6.5; // cap large stars so no blowouts
-  const logMin = Math.log(fMin);
-  const logMax = Math.log(fMax);
+const SKY_R = 18; // radius for star sphere (visual)
 
-  // Prepare additive blending for glow effect (lighter)
-  ctx.globalCompositeOperation = 'lighter';
-
-  // Draw faint halo first (optional)
-  for (const s of valid) {
-    const ra = s._raDeg; // 0..360
-    const dec = Number(s.dec);
-    const flux = magToFlux(s.mag);
-
-    const x = (ra / 360) * canvas.width;
-    const y = ((90 - dec) / 180) * canvas.height;
-
-    // radius mapping using normalized log flux
-    const r = (isFinite(logMax - logMin) && logMax !== logMin)
-      ? R_MIN + ( (Math.log(flux) - logMin) / (logMax - logMin) ) * (R_MAX - R_MIN)
-      : (R_MIN + R_MAX) / 2;
-
-    // small soft halo (very faint)
-    const halo = clamp(r * 1.6, 0.6, 20);
-    const grad = ctx.createRadialGradient(x, y, 0, x, y, halo);
-    const alpha = clamp(0.08 + ( (r - R_MIN) / (R_MAX - R_MIN) ) * 0.65, 0.06, 0.95);
-    grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
-    grad.addColorStop(0.6, `rgba(255,255,255,${alpha*0.15})`);
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = grad;
-    ctx.beginPath();
-    ctx.arc(x, y, halo, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // Draw solid cores on top
-  for (const s of valid) {
-    const ra = s._raDeg;
-    const dec = Number(s.dec);
-    const flux = magToFlux(s.mag);
-
-    const x = (ra / 360) * canvas.width;
-    const y = ((90 - dec) / 180) * canvas.height;
-
-    const r = (isFinite(logMax - logMin) && logMax !== logMin)
-      ? R_MIN + ( (Math.log(flux) - logMin) / (logMax - logMin) ) * (R_MAX - R_MIN)
-      : (R_MIN + R_MAX) / 2;
-
-    // core brightness (clamp)
-    ctx.fillStyle = 'rgba(255,255,255,0.95)';
-    ctx.beginPath();
-    ctx.arc(x, y, clamp(r, 0.4, R_MAX), 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  ctx.globalCompositeOperation = 'source-over';
-
-  // Draw labels for brightest stars only
-  ctx.fillStyle = 'rgba(220,220,220,0.95)';
-  ctx.font = '12px Arial';
-  ctx.textBaseline = 'middle';
-  for (const s of valid) {
-    if (!s.name) continue;
-    if (s.mag > 1.5) continue; // only label very bright stars
-    const x = (s._raDeg / 360) * canvas.width;
-    const y = ((90 - s.dec) / 180) * canvas.height;
-    // simple decluttering: skip if near edges
-    if (x < 6 || x > canvas.width - 6 || y < 6 || y > canvas.height - 6) continue;
-    ctx.fillText(s.name, x + 6, y - 6);
-  }
-
-  info.textContent = `Loaded ${valid.length} stars — 360° equirectangular`;
+/* ---------- Utility: RA/Dec -> unit vector ---------- */
+function getStarVector(raVal, dec) {
+  // raVal expected in degrees (0..360). dec in degrees (-90..90).
+  const ra = THREE.MathUtils.degToRad(raVal);
+  const decRad = THREE.MathUtils.degToRad(dec);
+  const x = Math.cos(decRad) * Math.cos(ra);
+  const y = Math.sin(decRad);
+  const z = Math.cos(decRad) * Math.sin(ra);
+  return new THREE.Vector3(x, y, z);
 }
 
-// Load JSON and draw
-fetch('./stars_3000.json')
-  .then(r => {
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  })
-  .then(data => {
-    // If top-level is object with data property, try common wrappers
-    let stars = data;
-    if (!Array.isArray(stars) && Array.isArray(data.stars)) stars = data.stars;
-    // Basic normalization: convert strings to numbers where possible
-    stars = stars.map(s => {
-      if (!s) return null;
-      return {
-        ra: s.ra !== undefined ? Number(s.ra) : (s.RA !== undefined ? Number(s.RA) : NaN),
-        dec: s.dec !== undefined ? Number(s.dec) : (s.DEC !== undefined ? Number(s.DEC) : NaN),
-        mag: s.mag !== undefined ? Number(s.mag) : (s.mag_vis !== undefined ? Number(s.mag_vis) : NaN),
-        name: s.name || s.proper || s.properName || null
-      };
-    });
-    drawStarsFlat(stars);
-  })
-  .catch(err => {
-    console.error(err);
-    info.textContent = 'Failed to load stars_3000.json — see console';
+/* ---------- Load stars JSON ---------- */
+const STATUS = document.getElementById('status');
+let rawStars = []; // array of input star objects
+let starPositions = []; // THREE.Vector3 positions scaled
+let starMeta = []; // parallel metadata
+let pointsMesh; // THREE.Points
+
+// Shader-based points (per-star twinkle)
+const vert = `
+  attribute float aBaseSize;
+  attribute float aPhase;
+  attribute float aSpeed;
+  varying float vAlpha;
+  void main(){
+    float t = aPhase + aSpeed * uTime;
+    float tw = sin(t) * 0.25 + 0.85; // twinkle modulation
+    vAlpha = clamp(tw, 0.2, 1.0);
+    float size = aBaseSize * tw;
+    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+    gl_PointSize = size * (300.0 / -mvPosition.z); // size attenuation
+    gl_Position = projectionMatrix * mvPosition;
+  }
+`;
+
+// Fragment shader makes points circular and white with alpha from vAlpha
+const frag = `
+  precision mediump float;
+  varying float vAlpha;
+  void main(){
+    vec2 c = gl_PointCoord - vec2(0.5);
+    float r = length(c);
+    if (r > 0.5) discard;
+    float falloff = smoothstep(0.5, 0.2, r);
+    gl_FragColor = vec4(vec3(1.0), vAlpha * falloff);
+  }
+`;
+
+// But Three.js shaders need the uTime uniform; we'll compile shader material below using onBeforeCompile if necessary.
+// To simplify portability (avoid onBeforeCompile issues), implement a small ShaderMaterial below.
+
+let starMaterial; // ShaderMaterial
+const uniforms = { uTime: { value: 0.0 } };
+
+/* ---------- Constellation definitions (by star name) ---------- */
+const CONSTELLATIONS = [
+  {
+    name: "CEPHEUS",
+    lines: [
+      ["Alderamin","Alfirk"], ["Alfirk","Errai"], ["Errai","Iota Cep"],
+      ["Iota Cep","Zeta Cep"], ["Zeta Cep","Alderamin"]
+    ]
+  },
+  {
+    name: "ORION",
+    lines: [
+      ["Betelgeuse","Bellatrix"], ["Bellatrix","Rigel"], ["Rigel","Saiph"],
+      ["Saiph","Alnitak"], ["Alnitak","Alnilam"], ["Alnilam","Mintaka"],
+      ["Mintaka","Betelgeuse"]
+    ]
+  },
+  {
+    name: "URSA MAJOR",
+    lines: [
+      ["Dubhe","Merak"], ["Merak","Phecda"], ["Phecda","Megrez"],
+      ["Megrez","Alioth"], ["Alioth","Mizar"], ["Mizar","Alkaid"]
+    ]
+  }
+];
+
+/* ---------- Helper: normalize RA units (hours vs degrees) ---------- */
+function normalizeRaArray(arr) {
+  // arr are numbers (may be strings). If most <= 25 -> hours
+  const nums = arr.map(v => Number(v));
+  const maxVal = Math.max(...nums.filter(isFinite));
+  if (maxVal <= 25) {
+    return nums.map(v => v * 15); // hours -> degrees
+  }
+  // otherwise wrap to 0..360
+  return nums.map(v => ((v % 360) + 360) % 360);
+}
+
+/* ---------- Load and build stars ---------- */
+fetch('./stars_3000.json').then(r => {
+  if (!r.ok) throw new Error('Failed to fetch stars_3000.json: ' + r.status);
+  return r.json();
+}).then(data => {
+  // Accept either top-level array or {stars: [...]}
+  let stars = data;
+  if (!Array.isArray(stars) && Array.isArray(data.stars)) stars = data.stars;
+  if (!Array.isArray(stars)) throw new Error('stars_3000.json must be an array');
+
+  rawStars = stars.map(s => {
+    return {
+      ra: s.ra !== undefined ? Number(s.ra) : (s.RA !== undefined ? Number(s.RA): NaN),
+      dec: s.dec !== undefined ? Number(s.dec) : (s.DEC !== undefined ? Number(s.DEC): NaN),
+      mag: s.mag !== undefined ? Number(s.mag) : (s.mag_vis !== undefined ? Number(s.mag_vis): 99),
+      name: s.name || s.proper || s.properName || null
+    };
   });
 
-// Optional: allow horizontal dragging to pan RA (wrap-aware)
-let drag = false, lastX = 0, offsetDeg = 0;
-canvas.addEventListener('pointerdown', e => { drag = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
-canvas.addEventListener('pointerup', e => { drag = false; canvas.releasePointerCapture(e.pointerId); });
-canvas.addEventListener('pointercancel', e => { drag = false; });
-canvas.addEventListener('pointermove', e => {
-  if (!drag) return;
-  const dx = e.clientX - lastX;
-  lastX = e.clientX;
-  // shift canvas by dx pixels horizontally by creating a temporary transform: we recompute by shifting RA when redrawing
-  // Simplest solution: translate canvas content visually
-  // But for robustness, we will do a quick visual translation without reprojecting: use ctx.translate
-  // For simplicity and to avoid heavy redraws on mobile, we will not implement pan here.
+  // Normalize RA units
+  const raVals = rawStars.map(s => s.ra);
+  const raDegs = normalizeRaArray(raVals);
+  rawStars.forEach((s, i) => s._raDeg = raDegs[i]);
+
+  // Build positions
+  starPositions = rawStars.map(s => getStarVector(s._raDeg, s.dec).multiplyScalar(SKY_R));
+  starMeta = rawStars.map(s => ({ name: s.name, mag: s.mag, ra: s._raDeg, dec: s.dec }));
+
+  buildPointCloud();
+  buildConstellationLines();
+  buildLabels();
+  STATUS.textContent = `Loaded ${rawStars.length} stars`;
+}).catch(err => {
+  console.error(err);
+  STATUS.textContent = 'Failed to load stars_3000.json';
 });
+
+/* ---------- Build Points (GPU) with twinkle attributes ---------- */
+function buildPointCloud() {
+  // Create buffer geometry
+  const N = starPositions.length;
+  const positions = new Float32Array(N * 3);
+  const aBaseSize = new Float32Array(N);
+  const aPhase = new Float32Array(N);
+  const aSpeed = new Float32Array(N);
+
+  for (let i = 0; i < N; i++) {
+    const p = starPositions[i];
+    positions[i*3] = p.x;
+    positions[i*3+1] = p.y;
+    positions[i*3+2] = p.z;
+
+    // Base size from magnitude: brighter => larger
+    const mag = isFinite(starMeta[i].mag) ? starMeta[i].mag : 6;
+    const base = Math.max(0.6, 5.5 - mag * 0.7); // tweak to feel right on mobile
+    aBaseSize[i] = base;
+
+    aPhase[i] = Math.random() * Math.PI * 2;
+    aSpeed[i] = 0.2 + Math.random() * 0.8; // twinkle speed variation
+  }
+
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+  geo.setAttribute('aBaseSize', new THREE.BufferAttribute(aBaseSize, 1));
+  geo.setAttribute('aPhase', new THREE.BufferAttribute(aPhase, 1));
+  geo.setAttribute('aSpeed', new THREE.BufferAttribute(aSpeed, 1));
+
+  // ShaderMaterial
+  starMaterial = new THREE.ShaderMaterial({
+    uniforms: { uTime: { value: 0.0 } },
+    vertexShader: `
+      attribute float aBaseSize;
+      attribute float aPhase;
+      attribute float aSpeed;
+      uniform float uTime;
+      varying float vAlpha;
+      void main(){
+        float t = aPhase + aSpeed * uTime;
+        float tw = sin(t) * 0.25 + 0.9;
+        vAlpha = clamp(tw, 0.18, 1.0);
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        // size attenuation with depth
+        float size = aBaseSize * tw;
+        gl_PointSize = size * (300.0 / -mvPos.z);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      precision mediump float;
+      varying float vAlpha;
+      void main(){
+        vec2 c = gl_PointCoord - vec2(0.5);
+        float r = length(c);
+        if (r > 0.5) discard;
+        float fall = smoothstep(0.5, 0.15, r);
+        gl_FragColor = vec4(vec3(1.0), vAlpha * fall);
+      }
+    `,
+    transparent: true,
+    depthWrite: false
+  });
+
+  pointsMesh = new THREE.Points(geo, starMaterial);
+  skyGroup.add(pointsMesh);
+}
+
+/* ---------- Build constellation lines if possible ---------- */
+const constellationGroup = new THREE.Group();
+skyGroup.add(constellationGroup);
+
+function buildConstellationLines() {
+  constellationGroup.clear();
+  const starIndexByName = {};
+  for (let i = 0; i < rawStars.length; i++) {
+    const name = (rawStars[i].name || "").toString().trim();
+    if (name) starIndexByName[name.toLowerCase()] = i;
+  }
+
+  CONSTELLATIONS.forEach(cons => {
+    const linePoints = [];
+    let used = false;
+    cons.lines.forEach(pair => {
+      const a = starIndexByName[pair[0].toLowerCase()];
+      const b = starIndexByName[pair[1].toLowerCase()];
+      if (a !== undefined && b !== undefined) {
+        const pa = starPositions[a];
+        const pb = starPositions[b];
+        const pts = [new THREE.Vector3(pa.x, pa.y, pa.z), new THREE.Vector3(pb.x, pb.y, pb.z)];
+        const geom = new THREE.BufferGeometry().setFromPoints(pts);
+        const mat = new THREE.LineBasicMaterial({ color: 0x88c0d0, linewidth: 1, transparent: true, opacity: 0.9 });
+        const line = new THREE.Line(geom, mat);
+        constellationGroup.add(line);
+        used = true;
+      }
+    });
+    // If any lines were used, add a centered label near centroid (optional)
+    if (used) {
+      // find centroid from used star names in this constellation
+      const usedIdx = [];
+      cons.lines.forEach(pair => {
+        const a = starIndexByName[pair[0].toLowerCase()];
+        const b = starIndexByName[pair[1].toLowerCase()];
+        if (a !== undefined) usedIdx.push(a);
+        if (b !== undefined) usedIdx.push(b);
+      });
+      if (usedIdx.length > 0) {
+        let cx = 0, cy = 0, cz = 0;
+        usedIdx.forEach(i => { cx += starPositions[i].x; cy += starPositions[i].y; cz += starPositions[i].z; });
+        cx /= usedIdx.length; cy /= usedIdx.length; cz /= usedIdx.length;
+        const div = document.createElement('div');
+        div.className = 'label';
+        div.textContent = cons.name;
+        const label = new CSS2DObject(div);
+        label.position.set(cx*1.02, cy*1.02, cz*1.02);
+        constellationGroup.add(label);
+      }
+    }
+  });
+}
+
+/* ---------- Labels for bright named stars ---------- */
+function buildLabels() {
+  // Remove previous if any
+  // Add labels for stars with a name and bright
+  for (let i = 0; i < rawStars.length; i++) {
+    const m = rawStars[i].mag;
+    const name = rawStars[i].name;
+    if (!name) continue;
+    // show only the brightest to avoid clutter
+    if (m > 2.0) continue;
+    const pos = starPositions[i].clone().multiplyScalar(1.02);
+    const div = document.createElement('div');
+    div.className = 'label';
+    div.textContent = name;
+    const label = new CSS2DObject(div);
+    label.position.copy(pos);
+    skyGroup.add(label);
+  }
+}
+
+/* ---------- Click/touch picking (screen-projected) ---------- */
+const infoPopup = document.getElementById('info-popup');
+
+function showInfoScreen(x, y, contentHTML) {
+  infoPopup.style.left = Math.min(window.innerWidth - 260, Math.max(8, x)) + 'px';
+  infoPopup.style.top = Math.min(window.innerHeight - 120, Math.max(8, y)) + 'px';
+  infoPopup.innerHTML = contentHTML;
+  infoPopup.style.display = 'block';
+}
+function hideInfoScreen() {
+  infoPopup.style.display = 'none';
+}
+
+function screenPosFromVector(vec) {
+  // vec as world position
+  const p = vec.clone().project(camera);
+  return { x: (p.x * 0.5 + 0.5) * window.innerWidth, y: (-p.y * 0.5 + 0.5) * window.innerHeight, z: p.z };
+}
+
+// pointer handler
+let pointerDown = false;
+renderer.domElement.addEventListener('pointerdown', (ev) => {
+  pointerDown = true;
+  handlePointer(ev);
+});
+renderer.domElement.addEventListener('pointerup', () => pointerDown = false);
+renderer.domElement.addEventListener('pointercancel', () => pointerDown = false);
+
+function handlePointer(ev) {
+  // find nearest star within threshold (in screen pixels)
+  const threshold = 14; // touch radius
+  let best = null;
+  let bestDist = threshold * threshold;
+
+  const mouseX = ev.clientX;
+  const mouseY = ev.clientY;
+
+  // iterate all stars and project (5k is OK)
+  for (let i = 0; i < starPositions.length; i++) {
+    const worldPos = starPositions[i].clone();
+    // star positions are local to skyGroup; convert to world
+    worldPos.applyMatrix4(skyGroup.matrixWorld);
+    const sp = screenPosFromVector(worldPos);
+    // ignore stars behind camera (z > 1 or z < -1)
+    if (sp.z > 1 || sp.z < -1) continue;
+    const dx = sp.x - mouseX;
+    const dy = sp.y - mouseY;
+    const d2 = dx*dx + dy*dy;
+    if (d2 < bestDist) {
+      bestDist = d2;
+      best = { idx: i, screen: sp };
+    }
+  }
+
+  if (best) {
+    const meta = starMeta[best.idx];
+    const raw = rawStars[best.idx];
+    const html = `
+      <div style="font-weight:700; font-size:14px; margin-bottom:6px">${meta.name || 'Unnamed Star'}</div>
+      <div>RA: ${raw._raDeg !== undefined ? raw._raDeg.toFixed(4) + '°' : '—'}</div>
+      <div>Dec: ${raw.dec !== undefined ? raw.dec.toFixed(4) + '°' : '—'}</div>
+      <div>Mag: ${meta.mag}</div>
+      <div style="margin-top:6px; font-size:12px; opacity:0.85">Index: ${best.idx}</div>
+      <div style="margin-top:6px"><button id="closeInfo" style="padding:6px 8px; border-radius:5px; border:none; background:#222; color:#fff; cursor:pointer">Close</button></div>
+    `;
+    showInfoScreen(ev.clientX + 6, ev.clientY + 6, html);
+    const btn = document.getElementById('closeInfo');
+    if (btn) btn.onclick = hideInfoScreen;
+  } else {
+    hideInfoScreen();
+  }
+}
+
+/* ---------- Animation loop (twinkle time + earth rotation) ---------- */
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+  const t = clock.getElapsedTime();
+  // update shader time
+  if (starMaterial) starMaterial.uniforms.uTime.value = t * 0.6; // slow global time scale
+
+  // gentle Earth rotation (visual)
+  earthGroup.rotation.y += 0.0006; // subtle spin
+  // gentle sky rotation opposite a bit to suggest parallax
+  skyGroup.rotation.y -= 0.0001;
+
+  controls.update();
+  renderer.render(scene, camera);
+  labelRenderer.render(scene, camera);
+}
+animate();
+
+/* ---------- Resize handling ---------- */
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  labelRenderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* ---------- Prevent zoom (pinch) on mobile by blocking wheel & touch gestures that change camera zoom ---------------- */
+window.addEventListener('wheel', (e) => { if (Math.abs(e.deltaY) > 0) e.preventDefault(); }, { passive: false });
+/* pointer gestures are handled by controls; since zoom disabled, pinch won't zoom. */
+
 </script>
 </body>
   </html>
