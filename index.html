@@ -1,32 +1,32 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <title>Star Map</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta charset="UTF-8">
+<title>Star Map</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      background: black;
-      overflow: hidden;
-      color: white;
-      font-family: Arial, sans-serif;
-    }
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: black;
+    overflow: hidden;
+    touch-action: none;
+  }
 
-    canvas {
-      display: block;
-    }
+  canvas {
+    display: block;
+  }
 
-    #info {
-      position: fixed;
-      bottom: 10px;
-      left: 10px;
-      font-size: 12px;
-      opacity: 0.7;
-    }
-  </style>
+  #info {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    color: #aaa;
+    font-size: 12px;
+    font-family: monospace;
+  }
+</style>
 </head>
 <body>
 
@@ -42,53 +42,50 @@ function resize() {
   canvas.width = window.innerWidth;
   canvas.height = window.innerHeight;
 }
-window.addEventListener("resize", resize);
 resize();
+window.addEventListener("resize", resize);
 
-// Convert RA/DEC to screen position (flat 360°, no wrap tricks)
-function projectStar(ra, dec) {
-  const x = (ra / 360) * canvas.width;
-  const y = canvas.height / 2 - (dec / 180) * canvas.height;
-  return { x, y };
+// Convert magnitude to brightness
+function magToRadius(mag) {
+  return Math.max(0.6, 4.5 - mag);
 }
 
 fetch("stars_3000.json")
-  .then(res => res.json())
+  .then(r => r.json())
   .then(stars => {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    stars.forEach(star => {
-      if (
-        star.ra === undefined ||
-        star.dec === undefined ||
-        star.mag === undefined
-      ) return;
-
-      const { x, y } = projectStar(star.ra, star.dec);
-
-      // brightness from magnitude
-      const size = Math.max(0.5, 4 - star.mag);
-      const alpha = Math.min(1, Math.max(0.2, 1 - star.mag / 6));
-
-      ctx.beginPath();
-      ctx.arc(x, y, size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
-      ctx.fill();
-
-      // draw star name if present & bright
-      if (star.name && star.mag < 2) {
-        ctx.fillStyle = "rgba(255,255,255,0.8)";
-        ctx.font = "10px Arial";
-        ctx.fillText(star.name, x + 4, y - 4);
-      }
-    });
-
+    drawStars(stars);
     info.textContent = `Loaded ${stars.length} real stars`;
   })
   .catch(err => {
     info.textContent = "Failed to load stars_3000.json";
     console.error(err);
   });
+
+function drawStars(stars) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = "black";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  for (const s of stars) {
+    // Flat projection
+    const x = (s.ra / 360) * canvas.width;
+    const y = canvas.height - ((s.dec + 90) / 180) * canvas.height;
+
+    const r = magToRadius(s.mag);
+
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = "white";
+    ctx.fill();
+
+    // Show names only for bright stars
+    if (s.name && s.mag <= 2.0) {
+      ctx.fillStyle = "#cccccc";
+      ctx.font = "10px sans-serif";
+      ctx.fillText(s.name, x + 4, y - 4);
+    }
+  }
+}
 </script>
 
 </body>
