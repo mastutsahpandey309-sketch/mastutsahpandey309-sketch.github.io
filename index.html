@@ -1,124 +1,94 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Real Star Sky (HYG)</title>
+  <meta charset="UTF-8" />
+  <title>Star Map</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-<style>
-html, body {
-  margin: 0;
-  padding: 0;
-  background: black;
-  overflow: hidden;
-}
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: black;
+      overflow: hidden;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
 
-#info {
-  position: fixed;
-  bottom: 10px;
-  left: 10px;
-  color: white;
-  font-family: monospace;
-  font-size: 12px;
-  z-index: 10;
-}
-</style>
+    canvas {
+      display: block;
+    }
 
-<script type="importmap">
-{
-  "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-  }
-}
-</script>
+    #info {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      font-size: 12px;
+      opacity: 0.7;
+    }
+  </style>
 </head>
-
 <body>
 
-<div id="info">Loading real stars…</div>
+<canvas id="sky"></canvas>
+<div id="info">Loading stars…</div>
 
-<script type="module">
-import * as THREE from "three";
-import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+<script>
+const canvas = document.getElementById("sky");
+const ctx = canvas.getContext("2d");
+const info = document.getElementById("info");
 
-const scene = new THREE.Scene();
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+window.addEventListener("resize", resize);
+resize();
 
-const camera = new THREE.PerspectiveCamera(
-  60,
-  window.innerWidth / window.innerHeight,
-  0.1,
-  1000
-);
-camera.position.set(0, 0, 30);
-
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-document.body.appendChild(renderer.domElement);
-
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enableDamping = true;
-controls.enablePan = false;
-
-const sky = new THREE.Group();
-scene.add(sky);
-
-const SKY_RADIUS = 20;
-
-/* RA / Dec → Cartesian */
-function raDecToVector(raDeg, decDeg) {
-  const ra = raDeg * Math.PI / 180;
-  const dec = decDeg * Math.PI / 180;
-
-  return new THREE.Vector3(
-    Math.cos(dec) * Math.cos(ra),
-    Math.sin(dec),
-    Math.cos(dec) * Math.sin(ra)
-  );
+// Convert RA/DEC to screen position (flat 360°, no wrap tricks)
+function projectStar(ra, dec) {
+  const x = (ra / 360) * canvas.width;
+  const y = canvas.height / 2 - (dec / 180) * canvas.height;
+  return { x, y };
 }
 
-/* Load real stars */
-fetch("./stars_3000.json")
-  .then(r => r.json())
+fetch("stars_3000.json")
+  .then(res => res.json())
   .then(stars => {
-    document.getElementById("info").textContent =
-      `Loaded ${stars.length} real stars`;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    stars.forEach(s => {
-      const pos = raDecToVector(s.ra, s.dec)
-        .multiplyScalar(SKY_RADIUS);
+    stars.forEach(star => {
+      if (
+        star.ra === undefined ||
+        star.dec === undefined ||
+        star.mag === undefined
+      ) return;
 
-      const size = Math.max(0.05, 0.4 - s.mag * 0.05);
+      const { x, y } = projectStar(star.ra, star.dec);
 
-      const star = new THREE.Mesh(
-        new THREE.SphereGeometry(size, 6, 6),
-        new THREE.MeshBasicMaterial({ color: 0xffffff })
-      );
+      // brightness from magnitude
+      const size = Math.max(0.5, 4 - star.mag);
+      const alpha = Math.min(1, Math.max(0.2, 1 - star.mag / 6));
 
-      star.position.copy(pos);
-      sky.add(star);
+      ctx.beginPath();
+      ctx.arc(x, y, size, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(255,255,255,${alpha})`;
+      ctx.fill();
+
+      // draw star name if present & bright
+      if (star.name && star.mag < 2) {
+        ctx.fillStyle = "rgba(255,255,255,0.8)";
+        ctx.font = "10px Arial";
+        ctx.fillText(star.name, x + 4, y - 4);
+      }
     });
+
+    info.textContent = `Loaded ${stars.length} real stars`;
   })
   .catch(err => {
-    document.getElementById("info").textContent =
-      "Failed to load stars_3000.json";
+    info.textContent = "Failed to load stars_3000.json";
     console.error(err);
   });
-
-function animate() {
-  requestAnimationFrame(animate);
-  controls.update();
-  renderer.render(scene, camera);
-}
-
-animate();
-
-window.addEventListener("resize", () => {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
-});
 </script>
 
 </body>
