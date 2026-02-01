@@ -1,26 +1,26 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Stellar Network — Real Sky</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Real Star Sky (HYG)</title>
 
 <style>
-body { margin: 0; overflow: hidden; background: black; font-family: monospace; }
-
-#ui {
-  position: absolute;
-  bottom: 20px;
-  left: 20px;
-  color: white;
-  z-index: 10;
+html, body {
+  margin: 0;
+  padding: 0;
+  background: black;
+  overflow: hidden;
 }
 
-.star-label {
+#info {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
   color: white;
-  font-size: 11px;
-  text-shadow: 0 0 4px black;
-  pointer-events: none;
+  font-family: monospace;
+  font-size: 12px;
+  z-index: 10;
 }
 </style>
 
@@ -36,342 +36,90 @@ body { margin: 0; overflow: hidden; background: black; font-family: monospace; }
 
 <body>
 
-<div id="ui">
-  <div>MODE: REAL STAR SKY</div>
-  <div id="status">Loading HYG catalog…</div>
-</div>
+<div id="info">Loading real stars…</div>
 
 <script type="module">
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
-import { CSS2DRenderer, CSS2DObject } from "three/addons/renderers/CSS2DRenderer.js";
 
 const scene = new THREE.Scene();
 
-const camera = new THREE.PerspectiveCamera(50, innerWidth / innerHeight, 0.1, 1000);
-camera.position.set(0, 0, 35);
+const camera = new THREE.PerspectiveCamera(
+  60,
+  window.innerWidth / window.innerHeight,
+  0.1,
+  1000
+);
+camera.position.set(0, 0, 30);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 document.body.appendChild(renderer.domElement);
-
-const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(innerWidth, innerHeight);
-labelRenderer.domElement.style.position = "absolute";
-labelRenderer.domElement.style.top = "0";
-document.body.appendChild(labelRenderer.domElement);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
+controls.enablePan = false;
 
-const skyGroup = new THREE.Group();
-scene.add(skyGroup);
+const sky = new THREE.Group();
+scene.add(sky);
 
-const SKY_RADIUS = 18;
+const SKY_RADIUS = 20;
 
-// RA/Dec → Vector
-function starVector(ra, dec) {
-  const phi = (90 - dec) * Math.PI / 180;
-  const theta = ra * Math.PI / 180;
+/* RA / Dec → Cartesian */
+function raDecToVector(raDeg, decDeg) {
+  const ra = raDeg * Math.PI / 180;
+  const dec = decDeg * Math.PI / 180;
 
   return new THREE.Vector3(
-    -Math.sin(phi) * Math.cos(theta),
-     Math.cos(phi),
-     Math.sin(phi) * Math.sin(theta)
+    Math.cos(dec) * Math.cos(ra),
+    Math.sin(dec),
+    Math.cos(dec) * Math.sin(ra)
   );
 }
 
-// Load real stars
+/* Load real stars */
 fetch("./stars_3000.json")
-.then(r => r.json())
-.then(stars => {
-  document.getElementById("status").textContent =
-    `Loaded ${stars.length} real stars`;
+  .then(r => r.json())
+  .then(stars => {
+    document.getElementById("info").textContent =
+      `Loaded ${stars.length} real stars`;
 
-  stars.forEach(s => {
-    const v = starVector(s.ra, s.dec).multiplyScalar(SKY_RADIUS);
+    stars.forEach(s => {
+      const pos = raDecToVector(s.ra, s.dec)
+        .multiplyScalar(SKY_RADIUS);
 
-    // magnitude → size (inverse scale)
-    const size = Math.max(0.08, 0.6 - s.mag * 0.08);
+      const size = Math.max(0.05, 0.4 - s.mag * 0.05);
 
-    const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(size, 8, 8),
-      new THREE.MeshBasicMaterial({ color: 0xffffff })
-    );
-    mesh.position.copy(v);
-    skyGroup.add(mesh);
+      const star = new THREE.Mesh(
+        new THREE.SphereGeometry(size, 6, 6),
+        new THREE.MeshBasicMaterial({ color: 0xffffff })
+      );
 
-    // label only if star has a name
-    if (s.name) {
-      const div = document.createElement("div");
-      div.className = "star-label";
-      div.textContent = s.name;
-      const label = new CSS2DObject(div);
-      label.position.set(0, size + 0.2, 0);
-      mesh.add(label);
-    }
+      star.position.copy(pos);
+      sky.add(star);
+    });
+  })
+  .catch(err => {
+    document.getElementById("info").textContent =
+      "Failed to load stars_3000.json";
+    console.error(err);
   });
-});
 
-// animation
 function animate() {
   requestAnimationFrame(animate);
   controls.update();
   renderer.render(scene, camera);
-  labelRenderer.render(scene, camera);
 }
+
 animate();
 
 window.addEventListener("resize", () => {
-  camera.aspect = innerWidth / innerHeight;
+  camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  labelRenderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight);
 });
 </script>
 
-</body>
-</html>            z-index: -1;
-        }
-
-        .container {
-            max-width: 1100px;
-            margin: 0 auto;
-            padding: 0 2rem;
-        }
-
-        header {
-            padding: 2rem 0;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .logo {
-            font-size: 1.5rem;
-            font-weight: 800;
-            letter-spacing: -1px;
-            text-transform: uppercase;
-        }
-
-        .logo span {
-            color: var(--primary);
-        }
-
-        .node-badge {
-            background: rgba(46, 204, 113, 0.2);
-            border: 1px solid var(--primary);
-            padding: 0.5rem 1rem;
-            border-radius: 20px;
-            font-size: 0.8rem;
-            font-weight: bold;
-        }
-
-        .hero {
-            text-align: center;
-            padding: 6rem 0 4rem;
-        }
-
-        h1 {
-            font-size: 4rem;
-            margin-bottom: 1.5rem;
-            line-height: 1.1;
-        }
-
-        .highlight {
-            color: var(--primary);
-            text-shadow: 0 0 20px rgba(46, 204, 113, 0.4);
-        }
-
-        .subtitle {
-            font-size: 1.25rem;
-            color: #94a3b8;
-            max-width: 600px;
-            margin: 0 auto 3rem;
-        }
-
-        /* The Creative Explanation Grid */
-        .explanation-card {
-            background: var(--card-bg);
-            border: 1px solid rgba(255,255,255,0.1);
-            backdrop-filter: blur(12px);
-            border-radius: 24px;
-            padding: 3rem;
-            display: grid;
-            grid-template-columns: 1fr auto 1fr auto 1fr;
-            align-items: center;
-            gap: 1.5rem;
-            margin-bottom: 4rem;
-        }
-
-        .step {
-            text-align: center;
-        }
-
-        .step .icon {
-            font-size: 2.5rem;
-            margin-bottom: 1rem;
-            display: block;
-        }
-
-        .step h3 {
-            margin-bottom: 0.5rem;
-            color: var(--primary);
-        }
-
-        .step p {
-            font-size: 0.9rem;
-            color: #cbd5e1;
-        }
-
-        .arrow {
-            font-size: 2rem;
-            color: rgba(255,255,255,0.2);
-            font-weight: 200;
-        }
-
-        .cta-container {
-            margin-top: 2rem;
-        }
-
-        .btn {
-            background: var(--primary);
-            color: white;
-            padding: 1.2rem 2.5rem;
-            border: none;
-            border-radius: 12px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            box-shadow: 0 10px 15px -3px rgba(46, 204, 113, 0.3);
-        }
-
-        .btn:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 20px 25px -5px rgba(46, 204, 113, 0.4);
-            background: #27ae60;
-        }
-
-        @media (max-width: 768px) {
-            .explanation-card {
-                grid-template-columns: 1fr;
-            }
-            .arrow {
-                transform: rotate(90deg);
-                margin: 0.5rem 0;
-            }
-            h1 { font-size: 2.5rem; }
-        }
-    </style>
-</head>
-<body>
-
-    <div id="canvas-container"></div>
-
-    <header class="container">
-        <div class="logo">Digital<span>Co-Op</span></div>
-        <div class="node-badge">Live Network: <span id="node-count">42</span> Nodes</div>
-    </header>
-
-    <main class="container">
-        <section class="hero">
-            <h1>Pooling Resources.<br><span class="highlight">Threading Connections.</span></h1>
-            <p class="subtitle">A digital cooperative is like a communal well. You contribute a drop of your spare digital power, and in return, you have access to the whole ocean.</p>
-            
-            <div class="explanation-card">
-                <div class="step">
-                    <span class="icon">🧩</span>
-                    <h3>Contribute</h3>
-                    <p>Spare storage or GPU power you aren't using.</p>
-                </div>
-                <div class="arrow">→</div>
-                <div class="step">
-                    <span class="icon">🧶</span>
-                    <h3>Thread</h3>
-                    <p>Your resource is "stitched" into our global graph.</p>
-                </div>
-                <div class="arrow">→</div>
-                <div class="step">
-                    <span class="icon">🚀</span>
-                    <h3>Access</h3>
-                    <p>Unlock the combined speed of the entire network.</p>
-                </div>
-            </div>
-
-            <div class="cta-container">
-                <button class="btn" onclick="addNode()">Join the Pool & Add a Node</button>
-            </div>
-        </section>
-    </main>
-
-    <script>
-        let nodes = [];
-        let maxDistance = 180;
-
-        function setup() {
-            let canvas = createCanvas(windowWidth, windowHeight);
-            canvas.parent('canvas-container');
-            
-            // Initial cluster
-            for (let i = 0; i < 42; i++) {
-                nodes.push(new Node(random(width), random(height)));
-            }
-        }
-
-        function draw() {
-            clear(); // Keeps the background transparent to see the CSS dark color
-            
-            for (let i = 0; i < nodes.length; i++) {
-                nodes[i].update();
-                nodes[i].display();
-                
-                for (let j = i + 1; j < nodes.length; j++) {
-                    let d = dist(nodes[i].pos.x, nodes[i].pos.y, nodes[j].pos.x, nodes[j].pos.y);
-                    if (d < maxDistance) {
-                        // Create the "Thread" effect
-                        stroke(46, 204, 113, map(d, 0, maxDistance, 150, 0));
-                        strokeWeight(1);
-                        line(nodes[i].pos.x, nodes[i].pos.y, nodes[j].pos.x, nodes[j].pos.y);
-                    }
-                }
-            }
-        }
-
-        class Node {
-            constructor(x, y) {
-                this.pos = createVector(x, y);
-                this.vel = createVector(random(-0.5, 0.5), random(-0.5, 0.5));
-            }
-
-            update() {
-                this.pos.add(this.vel);
-                // Bounce off edges
-                if (this.pos.x < 0 || this.pos.x > width) this.vel.x *= -1;
-                if (this.pos.y < 0 || this.pos.y > height) this.vel.y *= -1;
-            }
-
-            display() {
-                noStroke();
-                fill(46, 204, 113);
-                ellipse(this.pos.x, this.pos.y, 4, 4);
-            }
-        }
-
-        function addNode() {
-            // Add a new node in the center area
-            nodes.push(new Node(random(width/3, 2*width/3), random(height/3, 2*height/3)));
-            
-            // Update the UI count
-            let countElement = document.getElementById('node-count');
-            countElement.innerText = nodes.length;
-            countElement.style.color = "#fff";
-            setTimeout(() => { countElement.style.color = "#2ecc71"; }, 500);
-        }
-
-        function windowResized() {
-            resizeCanvas(windowWidth, windowHeight);
-        }
-    </script>
 </body>
 </html>
