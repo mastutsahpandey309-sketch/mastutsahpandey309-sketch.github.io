@@ -1,92 +1,212 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Star Map</title>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1.0" />
+<title>360° Real Star Background</title>
 <style>
-  html, body {
-    margin: 0;
-    padding: 0;
-    background: black;
-    overflow: hidden;
-    touch-action: none;
-  }
-
-  canvas {
-    display: block;
-  }
-
+  html,body { height:100%; margin:0; background:#000; overflow:hidden; }
+  canvas { display:block; width:100vw; height:100vh; }
   #info {
-    position: fixed;
-    bottom: 10px;
-    left: 10px;
-    color: #aaa;
-    font-size: 12px;
-    font-family: monospace;
+    position:fixed; left:8px; bottom:8px;
+    color:#ddd; font-family:monospace; font-size:12px;
+    background:rgba(0,0,0,0.25); padding:6px 8px; border-radius:4px;
   }
 </style>
 </head>
 <body>
-
-<canvas id="sky"></canvas>
+<canvas id="c"></canvas>
 <div id="info">Loading stars…</div>
 
 <script>
-const canvas = document.getElementById("sky");
-const ctx = canvas.getContext("2d");
-const info = document.getElementById("info");
+/*
+  Robust 360° equirectangular star map.
+  Expects stars_3000.json in repo root with objects having:
+    - ra  (hours OR degrees)
+    - dec (degrees)
+    - mag (visual magnitude)
+    - name (optional)
+*/
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d', { alpha: true });
+const info = document.getElementById('info');
 
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = Math.round(window.innerWidth * dpr);
+  canvas.height = Math.round(window.innerHeight * dpr);
+  canvas.style.width = window.innerWidth + 'px';
+  canvas.style.height = window.innerHeight + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
+window.addEventListener('resize', resize);
 resize();
-window.addEventListener("resize", resize);
 
-// Convert magnitude to brightness
-function magToRadius(mag) {
-  return Math.max(0.6, 4.5 - mag);
+// Utility: clamp
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+
+// Determine RA units and normalize RA -> degrees 0..360
+function normalizeRA(raVals) {
+  // If most values <= 24 -> treat as hours
+  const maxv = Math.max(...raVals.map(v => (isFinite(v) ? v : -Infinity)));
+  if (maxv <= 25) {
+    return raVals.map(v => v * 15); // hours -> degrees
+  }
+  // otherwise assume degrees; bring into 0..360
+  return raVals.map(v => ((v % 360) + 360) % 360);
 }
 
-fetch("stars_3000.json")
-  .then(r => r.json())
-  .then(stars => {
-    drawStars(stars);
-    info.textContent = `Loaded ${stars.length} real stars`;
-  })
-  .catch(err => {
-    info.textContent = "Failed to load stars_3000.json";
-    console.error(err);
-  });
+// Magnitude -> apparent flux (log scale). We'll compute flux and then map to radius.
+function magToFlux(mag) {
+  // Standard: flux ∝ 10^(-0.4 * mag)
+  return Math.pow(10, -0.4 * mag);
+}
 
-function drawStars(stars) {
+// Draw routine (equirectangular): x = (ra_deg/360)*width, y = (90-dec)/180*height
+function drawStarsFlat(stars) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = "black";
+  ctx.fillStyle = 'black';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  for (const s of stars) {
-    // Flat projection
-    const x = (s.ra / 360) * canvas.width;
-    const y = canvas.height - ((s.dec + 90) / 180) * canvas.height;
+  // compute fluxes, ignore invalid entries
+  const valid = stars.filter(s =>
+    s && isFinite(s.ra) && isFinite(s.dec) && isFinite(s.mag)
+  );
 
-    const r = magToRadius(s.mag);
-
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = "white";
-    ctx.fill();
-
-    // Show names only for bright stars
-    if (s.name && s.mag <= 2.0) {
-      ctx.fillStyle = "#cccccc";
-      ctx.font = "10px sans-serif";
-      ctx.fillText(s.name, x + 4, y - 4);
-    }
+  if (valid.length === 0) {
+    info.textContent = 'No valid stars';
+    return;
   }
-}
-</script>
 
+  // Detect RA unit & normalize
+  const raVals = valid.map(s => Number(s.ra));
+  const raDegs = normalizeRA(raVals);
+
+  // Attach normalized RA degrees back to objects
+  for (let i = 0; i < valid.length; i++) valid[i]._raDeg = raDegs[i];
+
+  // compute flux array (to normalise sizes)
+  const fluxes = valid.map(s => magToFlux(s.mag));
+  const fMin = Math.min(...fluxes);
+  const fMax = Math.max(...fluxes);
+
+  // Map flux -> radius (px). We use log-scaling and clamp.
+  // Choose min and max radius in px
+  const R_MIN = 0.6;
+  const R_MAX = 6.5; // cap large stars so no blowouts
+  const logMin = Math.log(fMin);
+  const logMax = Math.log(fMax);
+
+  // Prepare additive blending for glow effect (lighter)
+  ctx.globalCompositeOperation = 'lighter';
+
+  // Draw faint halo first (optional)
+  for (const s of valid) {
+    const ra = s._raDeg; // 0..360
+    const dec = Number(s.dec);
+    const flux = magToFlux(s.mag);
+
+    const x = (ra / 360) * canvas.width;
+    const y = ((90 - dec) / 180) * canvas.height;
+
+    // radius mapping using normalized log flux
+    const r = (isFinite(logMax - logMin) && logMax !== logMin)
+      ? R_MIN + ( (Math.log(flux) - logMin) / (logMax - logMin) ) * (R_MAX - R_MIN)
+      : (R_MIN + R_MAX) / 2;
+
+    // small soft halo (very faint)
+    const halo = clamp(r * 1.6, 0.6, 20);
+    const grad = ctx.createRadialGradient(x, y, 0, x, y, halo);
+    const alpha = clamp(0.08 + ( (r - R_MIN) / (R_MAX - R_MIN) ) * 0.65, 0.06, 0.95);
+    grad.addColorStop(0, `rgba(255,255,255,${alpha})`);
+    grad.addColorStop(0.6, `rgba(255,255,255,${alpha*0.15})`);
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(x, y, halo, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Draw solid cores on top
+  for (const s of valid) {
+    const ra = s._raDeg;
+    const dec = Number(s.dec);
+    const flux = magToFlux(s.mag);
+
+    const x = (ra / 360) * canvas.width;
+    const y = ((90 - dec) / 180) * canvas.height;
+
+    const r = (isFinite(logMax - logMin) && logMax !== logMin)
+      ? R_MIN + ( (Math.log(flux) - logMin) / (logMax - logMin) ) * (R_MAX - R_MIN)
+      : (R_MIN + R_MAX) / 2;
+
+    // core brightness (clamp)
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.beginPath();
+    ctx.arc(x, y, clamp(r, 0.4, R_MAX), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalCompositeOperation = 'source-over';
+
+  // Draw labels for brightest stars only
+  ctx.fillStyle = 'rgba(220,220,220,0.95)';
+  ctx.font = '12px Arial';
+  ctx.textBaseline = 'middle';
+  for (const s of valid) {
+    if (!s.name) continue;
+    if (s.mag > 1.5) continue; // only label very bright stars
+    const x = (s._raDeg / 360) * canvas.width;
+    const y = ((90 - s.dec) / 180) * canvas.height;
+    // simple decluttering: skip if near edges
+    if (x < 6 || x > canvas.width - 6 || y < 6 || y > canvas.height - 6) continue;
+    ctx.fillText(s.name, x + 6, y - 6);
+  }
+
+  info.textContent = `Loaded ${valid.length} stars — 360° equirectangular`;
+}
+
+// Load JSON and draw
+fetch('./stars_3000.json')
+  .then(r => {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
+  .then(data => {
+    // If top-level is object with data property, try common wrappers
+    let stars = data;
+    if (!Array.isArray(stars) && Array.isArray(data.stars)) stars = data.stars;
+    // Basic normalization: convert strings to numbers where possible
+    stars = stars.map(s => {
+      if (!s) return null;
+      return {
+        ra: s.ra !== undefined ? Number(s.ra) : (s.RA !== undefined ? Number(s.RA) : NaN),
+        dec: s.dec !== undefined ? Number(s.dec) : (s.DEC !== undefined ? Number(s.DEC) : NaN),
+        mag: s.mag !== undefined ? Number(s.mag) : (s.mag_vis !== undefined ? Number(s.mag_vis) : NaN),
+        name: s.name || s.proper || s.properName || null
+      };
+    });
+    drawStarsFlat(stars);
+  })
+  .catch(err => {
+    console.error(err);
+    info.textContent = 'Failed to load stars_3000.json — see console';
+  });
+
+// Optional: allow horizontal dragging to pan RA (wrap-aware)
+let drag = false, lastX = 0, offsetDeg = 0;
+canvas.addEventListener('pointerdown', e => { drag = true; lastX = e.clientX; canvas.setPointerCapture(e.pointerId); });
+canvas.addEventListener('pointerup', e => { drag = false; canvas.releasePointerCapture(e.pointerId); });
+canvas.addEventListener('pointercancel', e => { drag = false; });
+canvas.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - lastX;
+  lastX = e.clientX;
+  // shift canvas by dx pixels horizontally by creating a temporary transform: we recompute by shifting RA when redrawing
+  // Simplest solution: translate canvas content visually
+  // But for robustness, we will do a quick visual translation without reprojecting: use ctx.translate
+  // For simplicity and to avoid heavy redraws on mobile, we will not implement pan here.
+});
+</script>
 </body>
-</html>
+  </html>
