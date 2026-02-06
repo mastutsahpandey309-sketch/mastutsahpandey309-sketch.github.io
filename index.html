@@ -170,8 +170,8 @@ const CONSTELLATIONS = [
   {
     name: "CEPHEUS",
     lines: [
-      ["Alderamin","Alfirk"], ["Alfirk","Errai"], ["Errai","Iota Cep"],
-      ["Iota Cep","Zeta Cep"], ["Zeta Cep","Alderamin"]
+      ["Alderamin","Alfirk"], ["Alfirk","Errai"], ["Errai","Iot Cep"],
+      ["Iot Cep","Zet Cep"], ["Zet Cep","Alderamin"]
     ]
   },
   {
@@ -203,11 +203,44 @@ function normalizeRaArray(arr) {
   return nums.map(v => ((v % 360) + 360) % 360);
 }
 
+
+function normalizeStarName(name) {
+  if (!name) return '';
+  let normalized = name.toString().toLowerCase().trim();
+  normalized = normalized.replace(/^\d+\s*/, '');
+  const greekAliases = {
+    alpha: 'alp', beta: 'bet', gamma: 'gam', delta: 'del', epsilon: 'eps',
+    zeta: 'zet', eta: 'eta', theta: 'the', iota: 'iot', kappa: 'kap',
+    lambda: 'lam', mu: 'mu', nu: 'nu', xi: 'xi', omicron: 'omi',
+    pi: 'pi', rho: 'rho', sigma: 'sig', tau: 'tau', upsilon: 'ups',
+    phi: 'phi', chi: 'chi', psi: 'psi', omega: 'ome'
+  };
+  Object.entries(greekAliases).forEach(([full, abbr]) => {
+    normalized = normalized.replaceAll(full, abbr);
+  });
+  return normalized.replace(/[^a-z0-9]/g, '');
+}
+
 /* ---------- Load and build stars ---------- */
-fetch('./stars_3000.json').then(r => {
-  if (!r.ok) throw new Error('Failed to fetch stars_3000.json: ' + r.status);
-  return r.json();
-}).then(data => {
+async function loadStarsData() {
+  const candidates = ['./stars.json', './stars_3000.json'];
+  let lastError;
+
+  for (const path of candidates) {
+    try {
+      const response = await fetch(path);
+      if (!response.ok) throw new Error(`Failed to fetch ${path}: ${response.status}`);
+      const data = await response.json();
+      return { data, sourcePath: path };
+    } catch (err) {
+      lastError = err;
+    }
+  }
+
+  throw lastError || new Error('Unable to load star data file');
+}
+
+loadStarsData().then(({ data, sourcePath }) => {
   // Accept either top-level array or {stars: [...]}
   let stars = data;
   if (!Array.isArray(stars) && Array.isArray(data.stars)) stars = data.stars;
@@ -217,10 +250,14 @@ fetch('./stars_3000.json').then(r => {
     return {
       ra: s.ra !== undefined ? Number(s.ra) : (s.RA !== undefined ? Number(s.RA): NaN),
       dec: s.dec !== undefined ? Number(s.dec) : (s.DEC !== undefined ? Number(s.DEC): NaN),
-      mag: s.mag !== undefined ? Number(s.mag) : (s.mag_vis !== undefined ? Number(s.mag_vis): 99),
+      mag: s.mag !== undefined ? Number(s.mag)
+        : (s.mag_vis !== undefined ? Number(s.mag_vis)
+        : (s.brightness !== undefined ? Number(s.brightness)
+        : (s.magnitude !== undefined ? Number(s.magnitude)
+        : 99))),
       name: s.name || s.proper || s.properName || null
     };
-  });
+  }).filter(s => Number.isFinite(s.ra) && Number.isFinite(s.dec) && Number.isFinite(s.mag));
 
   // Normalize RA units
   const raVals = rawStars.map(s => s.ra);
@@ -234,10 +271,10 @@ fetch('./stars_3000.json').then(r => {
   buildPointCloud();
   buildConstellationLines();
   buildLabels();
-  STATUS.textContent = `Loaded ${rawStars.length} stars`;
+  STATUS.textContent = `Loaded ${rawStars.length} stars from ${sourcePath}`;
 }).catch(err => {
   console.error(err);
-  STATUS.textContent = 'Failed to load stars_3000.json';
+  STATUS.textContent = 'Failed to load stars data (stars.json / stars_3000.json)';
 });
 
 /* ---------- Build Points (GPU) with twinkle attributes ---------- */
@@ -257,7 +294,7 @@ function buildPointCloud() {
 
     // Base size from magnitude: brighter => larger
     const mag = isFinite(starMeta[i].mag) ? starMeta[i].mag : 6;
-    const base = Math.max(0.6, 5.5 - mag * 0.7); // tweak to feel right on mobile
+    const base = Math.max(0.45, 3.6 - mag * 0.38); // smaller + dimmer stars for visual clarity
     aBaseSize[i] = base;
 
     aPhase[i] = Math.random() * Math.PI * 2;
@@ -281,12 +318,12 @@ function buildPointCloud() {
       varying float vAlpha;
       void main(){
         float t = aPhase + aSpeed * uTime;
-        float tw = sin(t) * 0.25 + 0.9;
-        vAlpha = clamp(tw, 0.18, 1.0);
+        float tw = sin(t) * 0.12 + 0.72;
+        vAlpha = clamp(tw, 0.10, 0.58);
         vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
         // size attenuation with depth
         float size = aBaseSize * tw;
-        gl_PointSize = size * (300.0 / -mvPos.z);
+        gl_PointSize = size * (200.0 / -mvPos.z);
         gl_Position = projectionMatrix * mvPos;
       }
     `,
@@ -296,9 +333,9 @@ function buildPointCloud() {
       void main(){
         vec2 c = gl_PointCoord - vec2(0.5);
         float r = length(c);
-        if (r > 0.5) discard;
-        float fall = smoothstep(0.5, 0.15, r);
-        gl_FragColor = vec4(vec3(1.0), vAlpha * fall);
+        if (r > 0.42) discard;
+        float fall = smoothstep(0.42, 0.28, r);
+        gl_FragColor = vec4(vec3(1.0), vAlpha * fall * 0.55);
       }
     `,
     transparent: true,
@@ -318,21 +355,32 @@ function buildConstellationLines() {
   const starIndexByName = {};
   for (let i = 0; i < rawStars.length; i++) {
     const name = (rawStars[i].name || "").toString().trim();
-    if (name) starIndexByName[name.toLowerCase()] = i;
+    const key = normalizeStarName(name);
+    if (key) {
+      if (starIndexByName[key] === undefined || rawStars[i].mag < rawStars[starIndexByName[key]].mag) {
+        starIndexByName[key] = i; // keep brightest match for duplicate names
+      }
+    }
   }
 
   CONSTELLATIONS.forEach(cons => {
     const linePoints = [];
     let used = false;
     cons.lines.forEach(pair => {
-      const a = starIndexByName[pair[0].toLowerCase()];
-      const b = starIndexByName[pair[1].toLowerCase()];
+      const a = starIndexByName[normalizeStarName(pair[0])];
+      const b = starIndexByName[normalizeStarName(pair[1])];
       if (a !== undefined && b !== undefined) {
         const pa = starPositions[a];
         const pb = starPositions[b];
         const pts = [new THREE.Vector3(pa.x, pa.y, pa.z), new THREE.Vector3(pb.x, pb.y, pb.z)];
         const geom = new THREE.BufferGeometry().setFromPoints(pts);
-        const mat = new THREE.LineBasicMaterial({ color: 0x88c0d0, linewidth: 1, transparent: true, opacity: 0.9 });
+        const isCepheus = cons.name === "CEPHEUS";
+        const mat = new THREE.LineBasicMaterial({
+          color: isCepheus ? 0x7fd9ff : 0x88c0d0,
+          linewidth: isCepheus ? 2 : 1,
+          transparent: true,
+          opacity: isCepheus ? 1.0 : 0.9
+        });
         const line = new THREE.Line(geom, mat);
         constellationGroup.add(line);
         used = true;
@@ -343,8 +391,8 @@ function buildConstellationLines() {
       // find centroid from used star names in this constellation
       const usedIdx = [];
       cons.lines.forEach(pair => {
-        const a = starIndexByName[pair[0].toLowerCase()];
-        const b = starIndexByName[pair[1].toLowerCase()];
+        const a = starIndexByName[normalizeStarName(pair[0])];
+        const b = starIndexByName[normalizeStarName(pair[1])];
         if (a !== undefined) usedIdx.push(a);
         if (b !== undefined) usedIdx.push(b);
       });
