@@ -111,11 +111,12 @@ scene.add(earthGroup);
 
 const EARTH_R = 5;
 const texLoader = new THREE.TextureLoader();
-const earthMat = new THREE.MeshPhongMaterial({
+const earthMat = new THREE.MeshBasicMaterial({
   map: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg'),
-  color: 0xb3b3b3,
-  shininess: 6,
-  transparent: false
+  transparent: true,
+  opacity: 0.9,
+  color: 0xaaaaaa,
+  blending: THREE.AdditiveBlending
 });
 const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 64), earthMat);
 earthGroup.add(earthMesh);
@@ -126,11 +127,12 @@ const earthGrid = new THREE.LineSegments(
 );
 earthGroup.add(earthGrid);
 
-const ambient = new THREE.AmbientLight(0xffffff, 0.35);
-scene.add(ambient);
-const dir = new THREE.DirectionalLight(0xffffff, 0.75);
-dir.position.set(7, 6, 8);
-scene.add(dir);
+const userMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x80ff80 })
+);
+userMarker.visible = false;
+earthGroup.add(userMarker);
 
 const userMarker = new THREE.Mesh(
   new THREE.SphereGeometry(0.15, 16, 16),
@@ -238,7 +240,6 @@ fetch('./stars_3000.json').then(r => {
   buildPointCloud();
   buildConstellationLines();
   buildLabels();
-  PROCESS_CONNECTION.textContent = `Stellar map loaded (${rawStars.length} stars)`;
   if (!locatingUser) {
     STATUS.textContent = `Loaded ${rawStars.length} stars`;
   }
@@ -305,8 +306,8 @@ function buildPointCloud() {
 const constellationGroup = new THREE.Group();
 skyGroup.add(constellationGroup);
 
-const CEPHEUS_LINE_COLOR = 0xb8ebff;
-const OTHER_LINE_COLOR = 0x9acde8;
+const CEPHEUS_LINE_COLOR = 0x7dd3ff;
+const OTHER_LINE_COLOR = 0x88c0d0;
 
 function buildConstellationLines() {
   constellationGroup.clear();
@@ -329,8 +330,8 @@ function buildConstellationLines() {
         const mat = new THREE.LineBasicMaterial({
           color: cons.name === 'CEPHEUS' ? CEPHEUS_LINE_COLOR : OTHER_LINE_COLOR,
           linewidth: 1,
-          transparent: false,
-          opacity: 1
+          transparent: true,
+          opacity: cons.name === 'CEPHEUS' ? 1 : 0.7
         });
         const line = new THREE.Line(geom, mat);
         constellationGroup.add(line);
@@ -461,12 +462,6 @@ let locatingUser = true;
 let userLocationFound = false;
 let rotateToUser = false;
 let targetQuat = new THREE.Quaternion();
-let currentProcessText = 'Preparing scene...';
-
-function setProcess(text) {
-  currentProcessText = text;
-  PROCESS_CURRENT.textContent = text;
-}
 
 function latLonToVec3(lat, lon, radius) {
   const latRad = THREE.MathUtils.degToRad(lat);
@@ -483,9 +478,6 @@ function setUserLocation(lat, lon) {
   userMarker.visible = true;
   userLocationFound = true;
   locatingUser = false;
-  PROCESS_LOCATION.textContent = 'Location resolved';
-  PROCESS_LATLON.textContent = `Latitude/Longitude: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
-  setProcess('Pinning location on Earth...');
 
   const currentWorldPos = point.clone().applyQuaternion(earthGroup.quaternion);
   const desiredDir = new THREE.Vector3(0, 0, 1);
@@ -493,36 +485,28 @@ function setUserLocation(lat, lon) {
   targetQuat = deltaQuat.multiply(earthGroup.quaternion.clone());
   rotateToUser = true;
   STATUS.textContent = 'Location found. Centering your pin...';
-  setProcess('Rotating Earth to center your pin...');
 }
 
 function requestUserLocation() {
   if (!navigator.geolocation) {
     locatingUser = false;
     STATUS.textContent = 'Geolocation unavailable. Rotate Earth manually.';
-    PROCESS_LOCATION.textContent = 'Geolocation unavailable';
-    setProcess('Manual rotate mode');
     return;
   }
 
   STATUS.textContent = 'Locating your position...';
-  PROCESS_LOCATION.textContent = 'Finding location permission...';
-  setProcess('Requesting geolocation permission...');
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       setUserLocation(pos.coords.latitude, pos.coords.longitude);
     },
     () => {
       locatingUser = false;
-      PROCESS_LOCATION.textContent = 'Location denied/unavailable';
-      setProcess('Manual rotate mode');
       STATUS.textContent = 'Location denied/unavailable. Rotate Earth manually.';
     },
     { enableHighAccuracy: true, timeout: 12000, maximumAge: 120000 }
   );
 }
 
-setProcess('Connecting to stellar map...');
 requestUserLocation();
 
 function animate() {
@@ -541,6 +525,19 @@ function animate() {
       rotateToUser = false;
       STATUS.textContent = userLocationFound ? 'Your location is pinned.' : STATUS.textContent;
       setProcess(userLocationFound ? 'Tracking ready. You can rotate Earth.' : currentProcessText);
+    }
+  }
+
+  if (locatingUser) {
+    earthGroup.rotation.y += 0.0022;
+  }
+
+  if (rotateToUser) {
+    earthGroup.quaternion.slerp(targetQuat, 0.03);
+    if (earthGroup.quaternion.angleTo(targetQuat) < 0.01) {
+      earthGroup.quaternion.copy(targetQuat);
+      rotateToUser = false;
+      STATUS.textContent = userLocationFound ? 'Your location is pinned.' : STATUS.textContent;
     }
   }
 
