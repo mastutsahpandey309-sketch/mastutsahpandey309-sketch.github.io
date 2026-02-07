@@ -141,6 +141,13 @@ const userMarker = new THREE.Mesh(
 userMarker.visible = false;
 earthGroup.add(userMarker);
 
+const userMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x80ff80 })
+);
+userMarker.visible = false;
+earthGroup.add(userMarker);
+
 /* ---------- Sky group (stars live here around Earth) ---------- */
 const skyGroup = new THREE.Group();
 earthGroup.add(skyGroup); // keep sky tied to earth for consistent observer frame
