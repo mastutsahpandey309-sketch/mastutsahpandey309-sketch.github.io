@@ -63,7 +63,7 @@ const container = document.getElementById('canvas-container');
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 0, 35);
+camera.position.set(0, 0, 16);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -91,19 +91,28 @@ scene.add(earthGroup);
 
 const EARTH_R = 5;
 const texLoader = new THREE.TextureLoader();
-const earthMat = new THREE.MeshPhongMaterial({
-  map: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg'),
-  shininess: 5
+const earthMat = new THREE.MeshBasicMaterial({
+  map: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg'),
+  transparent: true,
+  opacity: 0.9,
+  color: 0xaaaaaa,
+  blending: THREE.AdditiveBlending
 });
 const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 64), earthMat);
 earthGroup.add(earthMesh);
 
-// subtle light
-const ambient = new THREE.AmbientLight(0xffffff, 0.25);
-scene.add(ambient);
-const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-dir.position.set(5,10,7);
-scene.add(dir);
+const earthGrid = new THREE.LineSegments(
+  new THREE.WireframeGeometry(new THREE.SphereGeometry(EARTH_R + 0.1, 24, 24)),
+  new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 })
+);
+earthGroup.add(earthGrid);
+
+const userMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x80ff80 })
+);
+userMarker.visible = false;
+earthGroup.add(userMarker);
 
 /* ---------- Sky group (stars live here around Earth) ---------- */
 const skyGroup = new THREE.Group();
@@ -234,7 +243,9 @@ fetch('./stars_3000.json').then(r => {
   buildPointCloud();
   buildConstellationLines();
   buildLabels();
-  STATUS.textContent = `Loaded ${rawStars.length} stars`;
+  if (!locatingUser) {
+    STATUS.textContent = `Loaded ${rawStars.length} stars`;
+  }
 }).catch(err => {
   console.error(err);
   STATUS.textContent = 'Failed to load stars_3000.json';
@@ -313,6 +324,9 @@ function buildPointCloud() {
 const constellationGroup = new THREE.Group();
 skyGroup.add(constellationGroup);
 
+const CEPHEUS_LINE_COLOR = 0x7dd3ff;
+const OTHER_LINE_COLOR = 0x88c0d0;
+
 function buildConstellationLines() {
   constellationGroup.clear();
   const starIndexByName = {};
@@ -322,7 +336,6 @@ function buildConstellationLines() {
   }
 
   CONSTELLATIONS.forEach(cons => {
-    const linePoints = [];
     let used = false;
     cons.lines.forEach(pair => {
       const a = starIndexByName[pair[0].toLowerCase()];
@@ -332,7 +345,12 @@ function buildConstellationLines() {
         const pb = starPositions[b];
         const pts = [new THREE.Vector3(pa.x, pa.y, pa.z), new THREE.Vector3(pb.x, pb.y, pb.z)];
         const geom = new THREE.BufferGeometry().setFromPoints(pts);
-        const mat = new THREE.LineBasicMaterial({ color: 0x88c0d0, linewidth: 1, transparent: true, opacity: 0.9 });
+        const mat = new THREE.LineBasicMaterial({
+          color: cons.name === 'CEPHEUS' ? CEPHEUS_LINE_COLOR : OTHER_LINE_COLOR,
+          linewidth: 1,
+          transparent: true,
+          opacity: cons.name === 'CEPHEUS' ? 1 : 0.7
+        });
         const line = new THREE.Line(geom, mat);
         constellationGroup.add(line);
         used = true;
@@ -458,6 +476,56 @@ function handlePointer(ev) {
 
 /* ---------- Animation loop (twinkle time + earth rotation) ---------- */
 const clock = new THREE.Clock();
+let locatingUser = true;
+let userLocationFound = false;
+let rotateToUser = false;
+let targetQuat = new THREE.Quaternion();
+
+function latLonToVec3(lat, lon, radius) {
+  const latRad = THREE.MathUtils.degToRad(lat);
+  const lonRad = THREE.MathUtils.degToRad(lon);
+  const x = radius * Math.cos(latRad) * Math.cos(lonRad);
+  const y = radius * Math.sin(latRad);
+  const z = radius * Math.cos(latRad) * Math.sin(lonRad);
+  return new THREE.Vector3(x, y, z);
+}
+
+function setUserLocation(lat, lon) {
+  const point = latLonToVec3(lat, lon, EARTH_R + 0.22);
+  userMarker.position.copy(point);
+  userMarker.visible = true;
+  userLocationFound = true;
+  locatingUser = false;
+
+  const currentWorldPos = point.clone().applyQuaternion(earthGroup.quaternion);
+  const desiredDir = new THREE.Vector3(0, 0, 1);
+  const deltaQuat = new THREE.Quaternion().setFromUnitVectors(currentWorldPos.clone().normalize(), desiredDir);
+  targetQuat = deltaQuat.multiply(earthGroup.quaternion.clone());
+  rotateToUser = true;
+  STATUS.textContent = 'Location found. Centering your pin...';
+}
+
+function requestUserLocation() {
+  if (!navigator.geolocation) {
+    locatingUser = false;
+    STATUS.textContent = 'Geolocation unavailable. Rotate Earth manually.';
+    return;
+  }
+
+  STATUS.textContent = 'Locating your position...';
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      setUserLocation(pos.coords.latitude, pos.coords.longitude);
+    },
+    () => {
+      locatingUser = false;
+      STATUS.textContent = 'Location denied/unavailable. Rotate Earth manually.';
+    },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 120000 }
+  );
+}
+
+requestUserLocation();
 
 function animate() {
   requestAnimationFrame(animate);
@@ -465,8 +533,21 @@ function animate() {
   // update shader time
   if (starMaterial) starMaterial.uniforms.uTime.value = t * 0.6; // slow global time scale
 
+  if (locatingUser) {
+    earthGroup.rotation.y += 0.0022;
+  }
+
+  if (rotateToUser) {
+    earthGroup.quaternion.slerp(targetQuat, 0.03);
+    if (earthGroup.quaternion.angleTo(targetQuat) < 0.01) {
+      earthGroup.quaternion.copy(targetQuat);
+      rotateToUser = false;
+      STATUS.textContent = userLocationFound ? 'Your location is pinned.' : STATUS.textContent;
+    }
+  }
+
   // gentle Earth rotation (visual)
-  earthGroup.rotation.y += 0.0006; // subtle spin
+  if (!locatingUser && !rotateToUser) earthGroup.rotation.y += 0.00025;
   // gentle sky rotation opposite a bit to suggest parallax
   skyGroup.rotation.y -= 0.0001;
 
