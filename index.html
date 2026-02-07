@@ -117,6 +117,12 @@ const earthMat = new THREE.MeshPhongMaterial({
   shininess: 3,
   emissive: 0x222222,
   transparent: false
+const earthMat = new THREE.MeshBasicMaterial({
+  map: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg'),
+  transparent: true,
+  opacity: 0.9,
+  color: 0xaaaaaa,
+  blending: THREE.AdditiveBlending
 });
 const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 64), earthMat);
 earthGroup.add(earthMesh);
@@ -132,6 +138,26 @@ scene.add(ambient);
 const dir = new THREE.DirectionalLight(0xffffff, 0.75);
 dir.position.set(7, 6, 8);
 scene.add(dir);
+const userMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x80ff80 })
+);
+userMarker.visible = false;
+earthGroup.add(userMarker);
+
+const userMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x80ff80 })
+);
+userMarker.visible = false;
+earthGroup.add(userMarker);
+
+const userMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x80ff80 })
+);
+userMarker.visible = false;
+earthGroup.add(userMarker);
 
 const userMarker = new THREE.Mesh(
   new THREE.SphereGeometry(0.15, 16, 16),
@@ -255,6 +281,8 @@ function buildPointCloud() {
   const N = starPositions.length;
   const positions = new Float32Array(N * 3);
   const colors = new Float32Array(N * 3);
+  const aBaseSize = new Float32Array(N);
+  const aAlpha = new Float32Array(N);
 
   for (let i = 0; i < N; i++) {
     const p = starPositions[i];
@@ -267,6 +295,10 @@ function buildPointCloud() {
     colors[i*3] = intensity;
     colors[i*3+1] = intensity;
     colors[i*3+2] = intensity;
+    const size = THREE.MathUtils.clamp(4.2 - mag * 0.45, 0.9, 3.2);
+    const alpha = THREE.MathUtils.clamp(1.0 - (mag + 1.2) * 0.12, 0.25, 1.0);
+    aBaseSize[i] = size;
+    aAlpha[i] = alpha;
   }
 
   const geo = new THREE.BufferGeometry();
@@ -290,6 +322,28 @@ function buildPointCloud() {
     vertexColors: true,
     map: dotTexture,
     alphaTest: 0.5,
+  geo.setAttribute('aBaseSize', new THREE.BufferAttribute(aBaseSize, 1));
+  geo.setAttribute('aAlpha', new THREE.BufferAttribute(aAlpha, 1));
+
+  starMaterial = new THREE.ShaderMaterial({
+    vertexShader: `
+      attribute float aBaseSize;
+      attribute float aAlpha;
+      varying float vAlpha;
+      void main(){
+        vAlpha = aAlpha;
+        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
+        gl_PointSize = aBaseSize * (220.0 / -mvPos.z);
+        gl_Position = projectionMatrix * mvPos;
+      }
+    `,
+    fragmentShader: `
+      precision mediump float;
+      varying float vAlpha;
+      void main(){
+        gl_FragColor = vec4(vec3(1.0), vAlpha);
+      }
+    `,
     transparent: true,
     depthWrite: false
   });
@@ -304,6 +358,8 @@ skyGroup.add(constellationGroup);
 
 const CEPHEUS_LINE_COLOR = 0xb8ebff;
 const OTHER_LINE_COLOR = 0x9acde8;
+const CEPHEUS_LINE_COLOR = 0x7dd3ff;
+const OTHER_LINE_COLOR = 0x88c0d0;
 
 function buildConstellationLines() {
   constellationGroup.clear();
@@ -328,6 +384,8 @@ function buildConstellationLines() {
           linewidth: 1,
           transparent: false,
           opacity: 1
+          transparent: true,
+          opacity: cons.name === 'CEPHEUS' ? 1 : 0.7
         });
         const line = new THREE.Line(geom, mat);
         constellationGroup.add(line);
@@ -453,6 +511,7 @@ function handlePointer(ev) {
 }
 
 /* ---------- Animation loop (twinkle time + earth rotation) ---------- */
+const clock = new THREE.Clock();
 let locatingUser = true;
 let userLocationFound = false;
 let rotateToUser = false;
@@ -523,6 +582,8 @@ requestUserLocation();
 
 function animate() {
   requestAnimationFrame(animate);
+  clock.getElapsedTime();
+
   if (locatingUser) {
     earthGroup.rotation.y += 0.0011;
     setProcess('Rotating Earth while locating you...');
@@ -535,6 +596,19 @@ function animate() {
       rotateToUser = false;
       STATUS.textContent = userLocationFound ? 'Your location is pinned.' : STATUS.textContent;
       setProcess(userLocationFound ? 'Tracking ready. You can rotate Earth.' : currentProcessText);
+    }
+  }
+
+  if (locatingUser) {
+    earthGroup.rotation.y += 0.0022;
+  }
+
+  if (rotateToUser) {
+    earthGroup.quaternion.slerp(targetQuat, 0.03);
+    if (earthGroup.quaternion.angleTo(targetQuat) < 0.01) {
+      earthGroup.quaternion.copy(targetQuat);
+      rotateToUser = false;
+      STATUS.textContent = userLocationFound ? 'Your location is pinned.' : STATUS.textContent;
     }
   }
 
