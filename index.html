@@ -31,6 +31,19 @@
     font-weight: 600;
   }
   #hint { font-size:12px; opacity:0.9; }
+  #process-panel {
+    position:absolute; right:16px; bottom:18px; z-index:25;
+    min-width:240px;
+    background: rgba(4,8,14,0.55);
+    border: 1px solid rgba(140,180,220,0.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #d9e6f2;
+    backdrop-filter: blur(4px);
+  }
+  #process-title { font-size: 11px; letter-spacing: 1.4px; opacity: 0.75; margin-bottom: 8px; }
+  .process-line { font-size: 12px; margin: 3px 0; }
+  .process-label { opacity: 0.72; margin-right: 6px; }
 </style>
 
 <script type="importmap">
@@ -52,6 +65,13 @@
 
 <!-- Info popup placeholder -->
 <div id="info-popup" class="star-info" style="display:none"></div>
+<div id="process-panel">
+  <div id="process-title">SYSTEM STATUS</div>
+  <div class="process-line"><span class="process-label">1.</span><span id="proc-connection">Connecting to stellar map...</span></div>
+  <div class="process-line"><span class="process-label">2.</span><span id="proc-location">Waiting to start geolocation...</span></div>
+  <div class="process-line"><span class="process-label">3.</span><span id="proc-latlon">Latitude/Longitude: -- / --</span></div>
+  <div class="process-line"><span class="process-label">4.</span><span id="proc-current">Preparing scene...</span></div>
+</div>
 
 <script type="module">
 import * as THREE from "three";
@@ -63,7 +83,7 @@ const container = document.getElementById('canvas-container');
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
-camera.position.set(0, 0, 35);
+camera.position.set(0, 0, 16);
 
 const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -93,17 +113,32 @@ const EARTH_R = 5;
 const texLoader = new THREE.TextureLoader();
 const earthMat = new THREE.MeshPhongMaterial({
   map: texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_atmos_2048.jpg'),
-  shininess: 5
+  color: 0xc2c2c2,
+  shininess: 3,
+  emissive: 0x222222,
+  transparent: false
 });
 const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 64), earthMat);
 earthGroup.add(earthMesh);
 
-// subtle light
-const ambient = new THREE.AmbientLight(0xffffff, 0.25);
+const earthGrid = new THREE.LineSegments(
+  new THREE.WireframeGeometry(new THREE.SphereGeometry(EARTH_R + 0.1, 24, 24)),
+  new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 })
+);
+earthGroup.add(earthGrid);
+
+const ambient = new THREE.AmbientLight(0xffffff, 0.35);
 scene.add(ambient);
-const dir = new THREE.DirectionalLight(0xffffff, 0.6);
-dir.position.set(5,10,7);
+const dir = new THREE.DirectionalLight(0xffffff, 0.75);
+dir.position.set(7, 6, 8);
 scene.add(dir);
+
+const userMarker = new THREE.Mesh(
+  new THREE.SphereGeometry(0.15, 16, 16),
+  new THREE.MeshBasicMaterial({ color: 0x80ff80 })
+);
+userMarker.visible = false;
+earthGroup.add(userMarker);
 
 /* ---------- Sky group (stars live here around Earth) ---------- */
 const skyGroup = new THREE.Group();
@@ -124,46 +159,16 @@ function getStarVector(raVal, dec) {
 
 /* ---------- Load stars JSON ---------- */
 const STATUS = document.getElementById('status');
+const PROCESS_CONNECTION = document.getElementById('proc-connection');
+const PROCESS_LOCATION = document.getElementById('proc-location');
+const PROCESS_LATLON = document.getElementById('proc-latlon');
+const PROCESS_CURRENT = document.getElementById('proc-current');
 let rawStars = []; // array of input star objects
 let starPositions = []; // THREE.Vector3 positions scaled
 let starMeta = []; // parallel metadata
 let pointsMesh; // THREE.Points
 
-// Shader-based points (per-star twinkle)
-const vert = `
-  attribute float aBaseSize;
-  attribute float aPhase;
-  attribute float aSpeed;
-  varying float vAlpha;
-  void main(){
-    float t = aPhase + aSpeed * uTime;
-    float tw = sin(t) * 0.25 + 0.85; // twinkle modulation
-    vAlpha = clamp(tw, 0.2, 1.0);
-    float size = aBaseSize * tw;
-    vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-    gl_PointSize = size * (300.0 / -mvPosition.z); // size attenuation
-    gl_Position = projectionMatrix * mvPosition;
-  }
-`;
-
-// Fragment shader makes points circular and white with alpha from vAlpha
-const frag = `
-  precision mediump float;
-  varying float vAlpha;
-  void main(){
-    vec2 c = gl_PointCoord - vec2(0.5);
-    float r = length(c);
-    if (r > 0.5) discard;
-    float falloff = smoothstep(0.5, 0.2, r);
-    gl_FragColor = vec4(vec3(1.0), vAlpha * falloff);
-  }
-`;
-
-// But Three.js shaders need the uTime uniform; we'll compile shader material below using onBeforeCompile if necessary.
-// To simplify portability (avoid onBeforeCompile issues), implement a small ShaderMaterial below.
-
 let starMaterial; // ShaderMaterial
-const uniforms = { uTime: { value: 0.0 } };
 
 /* ---------- Constellation definitions (by star name) ---------- */
 const CONSTELLATIONS = [
@@ -234,20 +239,22 @@ fetch('./stars_3000.json').then(r => {
   buildPointCloud();
   buildConstellationLines();
   buildLabels();
-  STATUS.textContent = `Loaded ${rawStars.length} stars`;
+  PROCESS_CONNECTION.textContent = `Stellar map loaded (${rawStars.length} stars)`;
+  if (!locatingUser) {
+    STATUS.textContent = `Loaded ${rawStars.length} stars`;
+  }
 }).catch(err => {
   console.error(err);
   STATUS.textContent = 'Failed to load stars_3000.json';
+  PROCESS_CONNECTION.textContent = 'Stellar map connection failed';
+  PROCESS_CURRENT.textContent = 'Cannot continue without star catalog';
 });
 
-/* ---------- Build Points (GPU) with twinkle attributes ---------- */
+/* ---------- Build points (no glow: simple brightness points) ---------- */
 function buildPointCloud() {
-  // Create buffer geometry
   const N = starPositions.length;
   const positions = new Float32Array(N * 3);
-  const aBaseSize = new Float32Array(N);
-  const aPhase = new Float32Array(N);
-  const aSpeed = new Float32Array(N);
+  const colors = new Float32Array(N * 3);
 
   for (let i = 0; i < N; i++) {
     const p = starPositions[i];
@@ -255,52 +262,34 @@ function buildPointCloud() {
     positions[i*3+1] = p.y;
     positions[i*3+2] = p.z;
 
-    // Base size from magnitude: brighter => larger
     const mag = isFinite(starMeta[i].mag) ? starMeta[i].mag : 6;
-    const base = Math.max(0.6, 5.5 - mag * 0.7); // tweak to feel right on mobile
-    aBaseSize[i] = base;
-
-    aPhase[i] = Math.random() * Math.PI * 2;
-    aSpeed[i] = 0.2 + Math.random() * 0.8; // twinkle speed variation
+    const intensity = THREE.MathUtils.clamp(1.0 - (mag + 1.4) * 0.1, 0.16, 1.0);
+    colors[i*3] = intensity;
+    colors[i*3+1] = intensity;
+    colors[i*3+2] = intensity;
   }
 
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-  geo.setAttribute('aBaseSize', new THREE.BufferAttribute(aBaseSize, 1));
-  geo.setAttribute('aPhase', new THREE.BufferAttribute(aPhase, 1));
-  geo.setAttribute('aSpeed', new THREE.BufferAttribute(aSpeed, 1));
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
 
-  // ShaderMaterial
-  starMaterial = new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0.0 } },
-    vertexShader: `
-      attribute float aBaseSize;
-      attribute float aPhase;
-      attribute float aSpeed;
-      uniform float uTime;
-      varying float vAlpha;
-      void main(){
-        float t = aPhase + aSpeed * uTime;
-        float tw = sin(t) * 0.25 + 0.9;
-        vAlpha = clamp(tw, 0.18, 1.0);
-        vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-        // size attenuation with depth
-        float size = aBaseSize * tw;
-        gl_PointSize = size * (300.0 / -mvPos.z);
-        gl_Position = projectionMatrix * mvPos;
-      }
-    `,
-    fragmentShader: `
-      precision mediump float;
-      varying float vAlpha;
-      void main(){
-        vec2 c = gl_PointCoord - vec2(0.5);
-        float r = length(c);
-        if (r > 0.5) discard;
-        float fall = smoothstep(0.5, 0.15, r);
-        gl_FragColor = vec4(vec3(1.0), vAlpha * fall);
-      }
-    `,
+  const dotCanvas = document.createElement('canvas');
+  dotCanvas.width = 32;
+  dotCanvas.height = 32;
+  const dotCtx = dotCanvas.getContext('2d');
+  dotCtx.clearRect(0, 0, 32, 32);
+  dotCtx.fillStyle = '#ffffff';
+  dotCtx.beginPath();
+  dotCtx.arc(16, 16, 11, 0, Math.PI * 2);
+  dotCtx.fill();
+  const dotTexture = new THREE.CanvasTexture(dotCanvas);
+
+  starMaterial = new THREE.PointsMaterial({
+    size: 1.55,
+    sizeAttenuation: true,
+    vertexColors: true,
+    map: dotTexture,
+    alphaTest: 0.5,
     transparent: true,
     depthWrite: false
   });
@@ -313,6 +302,9 @@ function buildPointCloud() {
 const constellationGroup = new THREE.Group();
 skyGroup.add(constellationGroup);
 
+const CEPHEUS_LINE_COLOR = 0xb8ebff;
+const OTHER_LINE_COLOR = 0x9acde8;
+
 function buildConstellationLines() {
   constellationGroup.clear();
   const starIndexByName = {};
@@ -322,7 +314,6 @@ function buildConstellationLines() {
   }
 
   CONSTELLATIONS.forEach(cons => {
-    const linePoints = [];
     let used = false;
     cons.lines.forEach(pair => {
       const a = starIndexByName[pair[0].toLowerCase()];
@@ -332,7 +323,12 @@ function buildConstellationLines() {
         const pb = starPositions[b];
         const pts = [new THREE.Vector3(pa.x, pa.y, pa.z), new THREE.Vector3(pb.x, pb.y, pb.z)];
         const geom = new THREE.BufferGeometry().setFromPoints(pts);
-        const mat = new THREE.LineBasicMaterial({ color: 0x88c0d0, linewidth: 1, transparent: true, opacity: 0.9 });
+        const mat = new THREE.LineBasicMaterial({
+          color: cons.name === 'CEPHEUS' ? CEPHEUS_LINE_COLOR : OTHER_LINE_COLOR,
+          linewidth: 1,
+          transparent: false,
+          opacity: 1
+        });
         const line = new THREE.Line(geom, mat);
         constellationGroup.add(line);
         used = true;
@@ -457,16 +453,93 @@ function handlePointer(ev) {
 }
 
 /* ---------- Animation loop (twinkle time + earth rotation) ---------- */
-const clock = new THREE.Clock();
+let locatingUser = true;
+let userLocationFound = false;
+let rotateToUser = false;
+let targetQuat = new THREE.Quaternion();
+let currentProcessText = 'Preparing scene...';
+
+function setProcess(text) {
+  currentProcessText = text;
+  PROCESS_CURRENT.textContent = text;
+}
+
+function latLonToVec3(lat, lon, radius) {
+  const latRad = THREE.MathUtils.degToRad(lat);
+  const lonRad = THREE.MathUtils.degToRad(lon);
+  const x = radius * Math.cos(latRad) * Math.cos(lonRad);
+  const y = radius * Math.sin(latRad);
+  const z = radius * Math.cos(latRad) * Math.sin(lonRad);
+  return new THREE.Vector3(x, y, z);
+}
+
+function setUserLocation(lat, lon) {
+  const point = latLonToVec3(lat, lon, EARTH_R + 0.22);
+  userMarker.position.copy(point);
+  userMarker.visible = true;
+  userLocationFound = true;
+  locatingUser = false;
+  PROCESS_LOCATION.textContent = 'Location resolved';
+  PROCESS_LATLON.textContent = `Latitude/Longitude: ${lat.toFixed(4)}°, ${lon.toFixed(4)}°`;
+  setProcess('Pinning location on Earth...');
+
+  const currentWorldPos = point.clone().applyQuaternion(earthGroup.quaternion);
+  const desiredDir = new THREE.Vector3(0, 0, 1);
+  const deltaQuat = new THREE.Quaternion().setFromUnitVectors(currentWorldPos.clone().normalize(), desiredDir);
+  targetQuat = deltaQuat.multiply(earthGroup.quaternion.clone());
+  rotateToUser = true;
+  STATUS.textContent = 'Location found. Centering your pin...';
+  setProcess('Rotating Earth to center your pin...');
+}
+
+function requestUserLocation() {
+  if (!navigator.geolocation) {
+    locatingUser = false;
+    STATUS.textContent = 'Geolocation unavailable. Rotate Earth manually.';
+    PROCESS_LOCATION.textContent = 'Geolocation unavailable';
+    setProcess('Manual rotate mode');
+    return;
+  }
+
+  STATUS.textContent = 'Locating your position...';
+  PROCESS_LOCATION.textContent = 'Finding location permission...';
+  setProcess('Requesting geolocation permission...');
+  navigator.geolocation.getCurrentPosition(
+    (pos) => {
+      setUserLocation(pos.coords.latitude, pos.coords.longitude);
+    },
+    () => {
+      locatingUser = false;
+      PROCESS_LOCATION.textContent = 'Location denied/unavailable';
+      setProcess('Manual rotate mode');
+      STATUS.textContent = 'Location denied/unavailable. Rotate Earth manually.';
+    },
+    { enableHighAccuracy: true, timeout: 12000, maximumAge: 120000 }
+  );
+}
+
+setProcess('Connecting to stellar map...');
+requestUserLocation();
 
 function animate() {
   requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
-  // update shader time
-  if (starMaterial) starMaterial.uniforms.uTime.value = t * 0.6; // slow global time scale
+  if (locatingUser) {
+    earthGroup.rotation.y += 0.0011;
+    setProcess('Rotating Earth while locating you...');
+  }
+
+  if (rotateToUser) {
+    earthGroup.quaternion.slerp(targetQuat, 0.018);
+    if (earthGroup.quaternion.angleTo(targetQuat) < 0.01) {
+      earthGroup.quaternion.copy(targetQuat);
+      rotateToUser = false;
+      STATUS.textContent = userLocationFound ? 'Your location is pinned.' : STATUS.textContent;
+      setProcess(userLocationFound ? 'Tracking ready. You can rotate Earth.' : currentProcessText);
+    }
+  }
 
   // gentle Earth rotation (visual)
-  earthGroup.rotation.y += 0.0006; // subtle spin
+  if (!locatingUser && !rotateToUser) earthGroup.rotation.y += 0.00025;
   // gentle sky rotation opposite a bit to suggest parallax
   skyGroup.rotation.y -= 0.0001;
 
