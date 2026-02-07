@@ -10,12 +10,37 @@
             position: absolute; bottom: 20px; left: 20px;
             color: #80ff80; font-family: monospace; font-size: 14px;
             pointer-events: none;
+            z-index: 10;
+        }
+        /* Style for the hover tooltip */
+        #tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.8);
+            border: 1px solid #7dd3ff;
+            color: #fff;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-family: sans-serif;
+            font-size: 12px;
+            pointer-events: none; /* Let clicks pass through */
+            display: none;
+            z-index: 20;
+        }
+        /* Style for Constellation Labels */
+        .constellation-label {
+            color: #7dd3ff;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 10px;
+            text-shadow: 0 0 2px #000;
+            opacity: 0.8;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
 
 <div id="status">Initializing system...</div>
+<div id="tooltip">Star Name</div>
 
 <script type="importmap">
   {
@@ -29,12 +54,12 @@
 <script type="module">
     import * as THREE from 'three';
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+    import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
     // --- CONFIGURATION ---
     const EARTH_R = 5;
-    const STAR_COUNT = 3000; // Generated stars since raw data wasn't provided
-    const CEPHEUS_LINE_COLOR = 0x7dd3ff;
-    const OTHER_LINE_COLOR = 0x88c0d0;
+    const STAR_COUNT = 2000; 
+    const CONSTELLATION_NAMES = ["Orion", "Ursa Major", "Cassiopeia", "Draco", "Cepheus"];
 
     // --- SCENE SETUP ---
     const scene = new THREE.Scene();
@@ -46,219 +71,178 @@
     renderer.setPixelRatio(window.devicePixelRatio);
     document.body.appendChild(renderer.domElement);
 
+    // Label Renderer (CSS2D)
+    const labelRenderer = new CSS2DRenderer();
+    labelRenderer.setSize(window.innerWidth, window.innerHeight);
+    labelRenderer.domElement.style.position = 'absolute';
+    labelRenderer.domElement.style.top = '0px';
+    labelRenderer.domElement.style.pointerEvents = 'none'; // Allow clicks to pass through to canvas
+    document.body.appendChild(labelRenderer.domElement);
+
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    const clock = new THREE.Clock();
-    const STATUS = document.getElementById('status');
+    
+    // --- RAYCASTER FOR MOUSE INTERACTION ---
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+    const tooltip = document.getElementById('tooltip');
 
-    // --- TEXTURE LOADER ---
+    window.addEventListener('mousemove', (event) => {
+        // Calculate mouse position in normalized device coordinates (-1 to +1)
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+        // Move tooltip with mouse
+        tooltip.style.left = event.clientX + 15 + 'px';
+        tooltip.style.top = event.clientY + 15 + 'px';
+    });
+
+    // --- TEXTURES ---
     const texLoader = new THREE.TextureLoader();
-    // Using a basic dot for stars to avoid CORS issues with external sprites
-    const dotTexture = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/disc.png');
     const earthMap = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg');
+    const dotTexture = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/disc.png');
 
-    // --- EARTH GROUP ---
+    // --- EARTH ---
     const earthGroup = new THREE.Group();
     scene.add(earthGroup);
 
-    // 1. The Earth (Your requested style)
     const earthMat = new THREE.MeshBasicMaterial({
         map: earthMap,
-        transparent: true,
-        opacity: 0.9,
-        color: 0xaaaaaa,
-        blending: THREE.AdditiveBlending,
-        side: THREE.FrontSide
+        transparent: true, opacity: 0.9, color: 0xaaaaaa, blending: THREE.AdditiveBlending, side: THREE.FrontSide
     });
     const earthMesh = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 64, 64), earthMat);
     earthGroup.add(earthMesh);
 
-    // 2. The Grid (Your requested style)
     const grid = new THREE.LineSegments(
         new THREE.WireframeGeometry(new THREE.SphereGeometry(EARTH_R + 0.1, 24, 24)),
         new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.15 })
     );
     earthGroup.add(grid);
 
-    // 3. User Marker (Cleaned up - single instance)
     const userMarker = new THREE.Mesh(
         new THREE.SphereGeometry(0.15, 16, 16),
         new THREE.MeshBasicMaterial({ color: 0x80ff80 })
     );
-    userMarker.visible = false; // Hidden until location found
+    userMarker.visible = false;
     earthGroup.add(userMarker);
 
-    // --- LIGHTING ---
     const dir = new THREE.DirectionalLight(0xffffff, 0.75);
     dir.position.set(7, 6, 8);
     scene.add(dir);
 
-    // --- STAR SYSTEM (Shader Based) ---
-    // Generating dummy star data since original arrays were not provided
+    // --- STARS DATA GENERATION ---
     const starPositions = [];
-    const magnitudes = [];
-    for(let i=0; i<STAR_COUNT; i++) {
-        const r = 50 + Math.random() * 50; // Distance from center
+    const starNames = []; // Store names to display on hover
+    
+    // Helper to generate random point on sphere
+    function randomSpherePoint(radius) {
         const theta = 2 * Math.PI * Math.random();
         const phi = Math.acos(2 * Math.random() - 1);
-        starPositions.push(
-            r * Math.sin(phi) * Math.cos(theta),
-            r * Math.sin(phi) * Math.sin(theta),
-            r * Math.cos(phi)
-        );
-        magnitudes.push(Math.random() * 6); // Magnitude 0 to 6
+        return {
+            x: radius * Math.sin(phi) * Math.cos(theta),
+            y: radius * Math.sin(phi) * Math.sin(theta),
+            z: radius * Math.cos(phi)
+        };
     }
 
-    // Building Geometry
+    for(let i=0; i<STAR_COUNT; i++) {
+        const p = randomSpherePoint(50 + Math.random() * 50);
+        starPositions.push(p.x, p.y, p.z);
+        // Assign names to some stars, others get ID
+        if (i < 50) starNames.push(`Alpha Star-${i}`);
+        else if (i < 100) starNames.push(`Beta Star-${i}`);
+        else starNames.push(`HIP ${10000 + i}`);
+    }
+
+    // --- STARS MESH ---
     const starGeo = new THREE.BufferGeometry();
-    const positions = new Float32Array(STAR_COUNT * 3);
-    const colors = new Float32Array(STAR_COUNT * 3);
-    const aBaseSize = new Float32Array(STAR_COUNT);
-    const aAlpha = new Float32Array(STAR_COUNT);
-
-    for (let i = 0; i < STAR_COUNT; i++) {
-        // Positions
-        positions[i*3] = starPositions[i*3];
-        positions[i*3+1] = starPositions[i*3+1];
-        positions[i*3+2] = starPositions[i*3+2];
-
-        // Colors & Alpha based on Magnitude
-        const mag = magnitudes[i];
-        const intensity = Math.pow(10, -0.4 * mag); // Physics-based brightness
-        colors[i*3] = intensity;
-        colors[i*3+1] = intensity;
-        colors[i*3+2] = intensity;
-        
-        const size = THREE.MathUtils.clamp(4.2 - mag * 0.45, 0.9, 3.2);
-        const alpha = THREE.MathUtils.clamp(1.0 - (mag + 1.2) * 0.12, 0.25, 1.0);
-        
-        aBaseSize[i] = size;
-        aAlpha[i] = alpha;
-    }
-
-    starGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-    starGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-    starGeo.setAttribute('aBaseSize', new THREE.BufferAttribute(aBaseSize, 1));
-    starGeo.setAttribute('aAlpha', new THREE.BufferAttribute(aAlpha, 1));
-
-    const starMaterial = new THREE.ShaderMaterial({
-        uniforms: {
-            time: { value: 0 },
-            pointTexture: { value: dotTexture }
-        },
-        vertexShader: `
-            attribute float aBaseSize;
-            attribute float aAlpha;
-            varying float vAlpha;
-            void main() {
-                vAlpha = aAlpha;
-                vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-                gl_PointSize = aBaseSize * (220.0 / -mvPos.z);
-                gl_Position = projectionMatrix * mvPos;
-            }
-        `,
-        fragmentShader: `
-            precision mediump float;
-            varying float vAlpha;
-            uniform sampler2D pointTexture;
-            void main() {
-                vec4 color = texture2D(pointTexture, gl_PointCoord);
-                if (color.a < 0.5) discard;
-                gl_FragColor = vec4(vec3(1.0), vAlpha * color.a);
-            }
-        `,
+    starGeo.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+    
+    // We use PointsMaterial here for easier Raycasting. 
+    // ShaderMaterial is faster but harder to raycast against individual points.
+    const starMaterial = new THREE.PointsMaterial({
+        color: 0xffffff,
+        size: 0.7,
+        map: dotTexture,
         transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending
+        alphaTest: 0.5,
+        sizeAttenuation: true
     });
 
     const starSystem = new THREE.Points(starGeo, starMaterial);
     scene.add(starSystem);
 
-
-    // --- CONSTELLATIONS (Placeholder Logic) ---
-    // Note: You need actual constellation data (pairs of stars) to draw lines.
-    // This group is initialized here so your logic doesn't break.
+    // --- CONSTELLATION LABELS (Always Visible) ---
+    // Creating dummy constellations around the sky
     const constellationGroup = new THREE.Group();
     scene.add(constellationGroup);
 
+    CONSTELLATION_NAMES.forEach((name, index) => {
+        const div = document.createElement('div');
+        div.className = 'constellation-label';
+        div.textContent = name;
+        
+        const label = new CSS2DObject(div);
+        
+        // Spread them out roughly
+        const p = randomSpherePoint(60); 
+        label.position.set(p.x, p.y, p.z);
+        
+        constellationGroup.add(label);
+    });
 
-    // --- STATE MANAGEMENT ---
+    // --- ANIMATION & LOGIC ---
     let locatingUser = true;
-    let userLocationFound = false;
-    let rotateToUser = false;
-    let targetQuat = new THREE.Quaternion();
+    const STATUS = document.getElementById('status');
 
-    // Mocking a User Location find after 3 seconds
-    setTimeout(() => {
-        // Example: Lon 0, Lat 0 (Center of map for test)
-        // Convert Lat/Lon to Vector3 on Sphere
-        const lat = 20, lon = 70; // Example coords
-        const phi = (90 - lat) * (Math.PI / 180);
-        const theta = (lon + 180) * (Math.PI / 180);
-        
-        const x = -(EARTH_R * Math.sin(phi) * Math.cos(theta));
-        const z = (EARTH_R * Math.sin(phi) * Math.sin(theta));
-        const y = (EARTH_R * Math.cos(phi));
-
-        userMarker.position.set(x, y, z);
-        userMarker.visible = true;
-        
-        // Calculate rotation needed to face user
-        // Simple approach: Look at the marker from outside
-        const targetPos = new THREE.Vector3(x, y, z).normalize().multiplyScalar(20);
-        
-        userLocationFound = true;
-        locatingUser = false;
-        rotateToUser = true;
-        
-        STATUS.textContent = "Location found. Aligning satellite view...";
-    }, 3000);
-
-
-    // --- ANIMATION LOOP ---
     function animate() {
         requestAnimationFrame(animate);
         
-        // Update Shader Time (if you add twinkling later)
-        starMaterial.uniforms.time.value = clock.getElapsedTime();
+        // 1. Raycasting for Star Names
+        raycaster.setFromCamera(mouse, camera);
+        
+        // Threshold prevents needing pixel-perfect accuracy
+        raycaster.params.Points.threshold = 0.5; 
+        
+        const intersects = raycaster.intersectObject(starSystem);
 
-        // 1. Locating Phase (Fast Spin)
+        if (intersects.length > 0) {
+            const index = intersects[0].index; // Get index of the specific star
+            const name = starNames[index];
+            tooltip.style.display = 'block';
+            tooltip.textContent = name;
+            document.body.style.cursor = 'crosshair';
+        } else {
+            tooltip.style.display = 'none';
+            document.body.style.cursor = 'default';
+        }
+
+        // 2. Earth Rotation Logic
         if (locatingUser) {
-            earthGroup.rotation.y += 0.005; 
-            STATUS.textContent = "Scanning global coordinates...";
-        }
-
-        // 2. Aligning Phase (Smooth Slerp)
-        if (rotateToUser) {
-            // Note: A real implementation requires calculating the target Quaternion 
-            // based on the camera position. For now, we stop the spin to simulate 'lock on'.
-            // To properly rotate Earth to face camera, we usually rotate the GROUP, not the camera.
-            
-            // Simplified "Lock" simulation:
-            earthGroup.rotation.y *= 0.95; // Slow down rapidly
-            if(earthGroup.rotation.y < 0.0001) {
-                rotateToUser = false;
-                STATUS.textContent = "Your location is pinned.";
-            }
-        }
-
-        // 3. Idle Phase (Gentle Rotation)
-        if (!locatingUser && !rotateToUser) {
-            earthGroup.rotation.y += 0.00025;
-            // Parallax effect
-            starSystem.rotation.y -= 0.00005;
+            earthGroup.rotation.y += 0.002;
+        } else {
+            earthGroup.rotation.y += 0.0005;
         }
 
         controls.update();
         renderer.render(scene, camera);
+        labelRenderer.render(scene, camera); // Render HTML labels
     }
 
-    // --- RESIZE HANDLER ---
+    // Mock "Found" event
+    setTimeout(() => {
+        locatingUser = false;
+        STATUS.textContent = "Location found.";
+        userMarker.visible = true;
+        // Place user marker at a visible spot for demo
+        userMarker.position.set(EARTH_R, 0, 0); 
+    }, 3000);
+
     window.addEventListener('resize', () => {
         camera.aspect = window.innerWidth / window.innerHeight;
         camera.updateProjectionMatrix();
         renderer.setSize(window.innerWidth, window.innerHeight);
+        labelRenderer.setSize(window.innerWidth, window.innerHeight);
     });
 
     animate();
