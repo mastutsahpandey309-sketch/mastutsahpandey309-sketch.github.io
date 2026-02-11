@@ -63,12 +63,37 @@
             white-space: nowrap;
             opacity: 0.9;
         }
+
+        #align-btn {
+            position: absolute;
+            left: 50%;
+            bottom: 26px;
+            transform: translateX(-50%);
+            padding: 12px 22px;
+            border: 1px solid #44d7ff;
+            border-radius: 999px;
+            background: rgba(0, 18, 32, 0.9);
+            color: #d8f7ff;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 0 12px rgba(68, 215, 255, 0.45);
+            display: none;
+            pointer-events: auto;
+        }
+
+        #align-btn:hover {
+            background: rgba(0, 35, 55, 0.95);
+            box-shadow: 0 0 16px rgba(68, 215, 255, 0.75);
+        }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
         <div id="status">System Initializing...</div>
+        <button id="align-btn">Align to Cepheus</button>
     </div>
 
     <div id="star-intel">
@@ -112,6 +137,14 @@
             {"ra":21.30963, "dec":62.585573, "mag":2.45, "name":"Alderamin"}, 
             {"ra":22.82802, "dec":66.200408, "mag":3.5,  "name":"32Iot Cep"}
         ];
+        const CONSTELLATION_DRAW_ORDER = ['Errai', 'Alfirk', '32Iot Cep', 'Alderamin', 'Zeta Cephai'];
+        const ALIGN_TARGETS = {
+            'Errai': new THREE.Vector2(0.00, -0.62),
+            'Alfirk': new THREE.Vector2(-0.10, -0.79),
+            '32Iot Cep': new THREE.Vector2(0.10, -0.79),
+            'Zeta Cephai': new THREE.Vector2(-0.08, -0.92),
+            'Alderamin': new THREE.Vector2(0.08, -0.92)
+        };
 
         // --- 2. SCENE SETUP ---
         const scene = new THREE.Scene();
@@ -138,6 +171,8 @@
 
         const clock = new THREE.Clock();
         const texLoader = new THREE.TextureLoader();
+        const loadingManager = new THREE.LoadingManager();
+        texLoader.manager = loadingManager;
 
         // --- 3. EARTH SYSTEM (PARENT GROUP) ---
         const earthGroup = new THREE.Group();
@@ -202,6 +237,7 @@
         // --- 5. STAR GENERATION ---
         const allStarData = []; 
         const constellationPathPoints = [];
+        const constellationByName = {};
         const geoPositions = [];
         const geoSizes = [];
         const geoAlphas = [];
@@ -209,7 +245,7 @@
         // 5a. Constellation Stars
         CONSTELLATION_DATA.forEach((star) => {
             const pos = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
-            constellationPathPoints.push(pos);
+            constellationByName[star.name] = pos.clone();
             geoPositions.push(pos.x, pos.y, pos.z);
             geoSizes.push(Math.max(5.0, 8.0 - star.mag));
             geoAlphas.push(1.0);
@@ -228,6 +264,12 @@
             const label = new CSS2DObject(div);
             label.position.copy(pos);
             earthGroup.add(label); // FIX: Parent to Earth so they rotate together
+        });
+
+        CONSTELLATION_DRAW_ORDER.forEach((name) => {
+            if (constellationByName[name]) {
+                constellationPathPoints.push(constellationByName[name].clone());
+            }
         });
 
         // 5b. Background Stars
@@ -316,8 +358,99 @@
         });
 
         // --- 7. ANIMATION STATE ---
-        let state = { locating: true, rotatingToUser: false, targetY: 0 };
+        let state = {
+            locating: true,
+            rotatingToUser: false,
+            targetY: 0,
+            assetsReady: false,
+            locationReady: false,
+            alignButtonShown: false,
+            aligningCepheus: false,
+            alignTargetQuaternion: new THREE.Quaternion()
+        };
         const STATUS = document.getElementById('status');
+        const alignBtn = document.getElementById('align-btn');
+        const cepheusCentroid = CONSTELLATION_DATA
+            .map((star) => getStarPosition(star.ra, star.dec, CONFIG.skyRadius))
+            .reduce((acc, p) => acc.add(p), new THREE.Vector3())
+            .multiplyScalar(1 / CONSTELLATION_DATA.length);
+
+        function maybeShowAlignButton() {
+            if (state.assetsReady && state.locationReady && !state.alignButtonShown) {
+                alignBtn.style.display = 'block';
+                state.alignButtonShown = true;
+                STATUS.textContent = 'Alignment Ready: Cepheus lock available';
+            }
+        }
+
+        loadingManager.onLoad = () => {
+            state.assetsReady = true;
+            maybeShowAlignButton();
+        };
+
+        function computeAlignmentQuaternion() {
+            const starVectors = {};
+            CONSTELLATION_DATA.forEach((star) => {
+                starVectors[star.name] = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
+            });
+
+            const targetNames = Object.keys(ALIGN_TARGETS);
+            const basisAxes = [
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 1, 0),
+                new THREE.Vector3(0, 0, 1)
+            ];
+
+            function alignmentCost(q) {
+                let total = 0;
+                targetNames.forEach((name) => {
+                    const projected = starVectors[name].clone().applyQuaternion(q).project(camera);
+                    const target = ALIGN_TARGETS[name];
+                    const dx = projected.x - target.x;
+                    const dy = projected.y - target.y;
+                    total += (dx * dx + dy * dy);
+                });
+
+                const centerProjected = cepheusCentroid.clone().applyQuaternion(q).project(camera);
+                const centerDx = centerProjected.x;
+                const centerDy = centerProjected.y + 0.80;
+                total += 0.7 * (centerDx * centerDx + centerDy * centerDy);
+                return total;
+            }
+
+            let bestQ = earthGroup.quaternion.clone().normalize();
+            let bestCost = alignmentCost(bestQ);
+
+            const stepSchedule = [0.25, 0.12, 0.06, 0.03, 0.015, 0.008, 0.004];
+            stepSchedule.forEach((step) => {
+                for (let iter = 0; iter < 40; iter++) {
+                    let improved = false;
+                    for (const axis of basisAxes) {
+                        for (const sign of [1, -1]) {
+                            const delta = new THREE.Quaternion().setFromAxisAngle(axis, sign * step);
+                            const candidate = delta.clone().multiply(bestQ).normalize();
+                            const cost = alignmentCost(candidate);
+                            if (cost < bestCost) {
+                                bestCost = cost;
+                                bestQ = candidate;
+                                improved = true;
+                            }
+                        }
+                    }
+                    if (!improved) break;
+                }
+            });
+
+            return bestQ;
+        }
+
+        alignBtn.addEventListener('click', () => {
+            state.alignTargetQuaternion.copy(computeAlignmentQuaternion());
+            state.aligningCepheus = true;
+            alignBtn.style.display = 'none';
+            STATUS.textContent = 'Aligning: Cepheus house shape...';
+            STATUS.style.borderLeftColor = '#44d7ff';
+        });
 
         function updateLocation(lat, lon) {
             const phi = (90 - lat) * (Math.PI / 180);
@@ -333,8 +466,10 @@
             state.targetY = -(lon * Math.PI / 180) - (Math.PI / 2);
             state.locating = false;
             state.rotatingToUser = true;
+            state.locationReady = true;
             STATUS.textContent = `Locked: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
             STATUS.style.borderLeftColor = "#00ffff"; 
+            maybeShowAlignButton();
         }
 
         if (navigator.geolocation) {
@@ -435,6 +570,14 @@
                 while (diff < -Math.PI) diff += Math.PI * 2;
                 earthGroup.rotation.y += diff * 0.05;
                 if (Math.abs(diff) < 0.001) state.rotatingToUser = false;
+            } else if (state.aligningCepheus) {
+                earthGroup.quaternion.slerp(state.alignTargetQuaternion, 0.05);
+                if (earthGroup.quaternion.angleTo(state.alignTargetQuaternion) < 0.0025) {
+                    earthGroup.quaternion.copy(state.alignTargetQuaternion);
+                    state.aligningCepheus = false;
+                    STATUS.textContent = 'Cepheus aligned to bottom-center home shape';
+                    STATUS.style.borderLeftColor = '#80ff80';
+                }
             } else {
                 earthGroup.rotation.y += 0.0003;
             }
