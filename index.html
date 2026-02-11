@@ -266,15 +266,24 @@
         const starSystem = new THREE.Points(starGeometry, starMaterial);
         scene.add(starSystem);
 
-        // 4e. Constellation Lines
-        // We create a line loop connecting the specific points
-        const lineGeometry = new THREE.BufferGeometry().setFromPoints(constellationPositions);
-        const lineMaterial = new THREE.LineBasicMaterial({ 
-            color: CONFIG.colors.lines, 
-            transparent: true, 
-            opacity: 0.5 
+        // 4e. Constellation Lines (UPDATED for Width and Brightness)
+        
+        // 1. Create a smooth 3D path from the star points
+        const path = new THREE.CatmullRomCurve3(constellationPositions);
+        
+        // 2. Create a Tube Geometry 
+        // Parameters: (path, segments, radius, radialSegments, closed)
+        // CHANGE '0.08' to make it thicker or thinner
+        const tubeGeometry = new THREE.TubeGeometry(path, 64, 0.08, 8, false);
+        
+        // 3. Use MeshBasicMaterial (It glows and isn't affected by shadows)
+        const tubeMaterial = new THREE.MeshBasicMaterial({ 
+            color: 0x00ffff, // Cyan color (Super Bright)
+            transparent: true,
+            opacity: 0.9 
         });
-        const constellationLines = new THREE.Line(lineGeometry, lineMaterial);
+        
+        const constellationLines = new THREE.Mesh(tubeGeometry, tubeMaterial);
         scene.add(constellationLines);
 
         // --- 5. ANIMATION LOGIC ---
