@@ -236,9 +236,9 @@
         const STATUS = document.getElementById('status');
 
         function updateLocation(lat, lon) {
-            // Convert Lat/Lon to 3D position on Earth Sphere
+            // 1. Place Marker on Sphere
             const phi = (90 - lat) * (Math.PI / 180);
-            const theta = (lon + 180) * (Math.PI / 180); // Offset for texture mapping
+            const theta = (lon + 180) * (Math.PI / 180); 
             
             const x = -(CONFIG.earthRadius * Math.sin(phi) * Math.cos(theta));
             const z = (CONFIG.earthRadius * Math.sin(phi) * Math.sin(theta));
@@ -247,6 +247,15 @@
             userMarker.position.set(x, y, z);
             userMarker.visible = true;
 
+            // 2. Calculate Target Rotation to Center the Location
+            // The texture maps Lon 0 to the side. To face camera (+Z), we need offset.
+            // Formula: -Longitude (converted to radians) - PI/2 offset
+            state.targetY = -(lon * Math.PI / 180) - (Math.PI / 2);
+
+            state.locating = false;
+            state.rotatingToUser = true;
+            STATUS.textContent = `Signal Locked: ${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
+        }
             // Calculate Target Rotation to face the user
             // We want to rotate the Earth so the user's Longitude faces the camera (Positive Z)
             // Camera is at +Z. 
