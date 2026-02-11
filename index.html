@@ -18,23 +18,19 @@
             color: #80ff80; font-size: 14px; text-transform: uppercase;
             letter-spacing: 2px;
             text-shadow: 0 0 5px #80ff80;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-left: 3px solid #80ff80;
         }
         
         /* Star Labels (CSS2D) */
         .star-label {
             color: #7dd3ff;
             font-size: 11px;
-            margin-top: -15px; /* Offset to sit above star */
+            margin-top: -15px; 
             opacity: 0.8;
-            transition: opacity 0.3s;
             text-shadow: 0 0 4px #000;
-            pointer-events: none; /* Let clicks pass through */
-        }
-        .star-label.highlight {
-            color: #ffffff;
-            font-weight: bold;
-            font-size: 14px;
-            opacity: 1.0;
+            pointer-events: none; 
         }
     </style>
 </head>
@@ -60,25 +56,23 @@
 
         // --- 1. CONFIGURATION ---
         const CONFIG = {
-            earthRadius: 5,
+            earthRadius: 7.5, // INCREASED SIZE (Was 5)
             skyRadius: 100,
-            starCount: 2000, // Background stars
+            starCount: 2000, 
             colors: {
                 earth: 0xaaaaaa,
                 grid: 0xffffff,
-                marker: 0x80ff80,
+                marker: 0xff3333, // Red marker for better visibility
                 lines: 0x7dd3ff,
                 starBase: 0xffffff
             }
         };
 
-        // Specific Data provided by user
-        // Note: RA is usually Hours (0-24). We multiply by 15 to get Degrees.
         const CONSTELLATION_DATA = [
             {"ra":23.65582, "dec":77.632276, "mag":3.21, "name":"Errai"},
             {"ra":21.477662,"dec":70.560716, "mag":3.23, "name":"Alfirk"},
             {"ra": 332.7137,"dec": 58.2013,"mag": 3.35,"name": "Zeta Cephai"},
-            {"ra":21.30963, "dec":62.585573, "mag":2.45, "name":"Alderamin"}, // Target for boost
+            {"ra":21.30963, "dec":62.585573, "mag":2.45, "name":"Alderamin"}, 
             {"ra":22.82802, "dec":66.200408, "mag":3.5,  "name":"32Iot Cep"}
         ];
 
@@ -86,14 +80,13 @@
         const scene = new THREE.Scene();
         
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 15, 25); // Start position
+        camera.position.set(0, 20, 30); // Adjusted camera for bigger earth
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
 
-        // Label Renderer for Star Names
         const labelRenderer = new CSS2DRenderer();
         labelRenderer.setSize(window.innerWidth, window.innerHeight);
         labelRenderer.domElement.style.position = 'absolute';
@@ -111,55 +104,42 @@
         const earthGroup = new THREE.Group();
         scene.add(earthGroup);
 
-        // Texture Loading
         const earthMap = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/planets/earth_specular_2048.jpg');
         const starTexture = texLoader.load('https://raw.githubusercontent.com/mrdoob/three.js/master/examples/textures/sprites/disc.png');
 
-        // Earth Mesh (User's Specific Style)
         const earthMesh = new THREE.Mesh(
             new THREE.SphereGeometry(CONFIG.earthRadius, 64, 64),
             new THREE.MeshBasicMaterial({
                 map: earthMap,
-                transparent: true,
-                opacity: 0.9,
-                color: CONFIG.colors.earth,
-                blending: THREE.AdditiveBlending,
-                side: THREE.FrontSide
+                transparent: true, opacity: 0.9, color: CONFIG.colors.earth,
+                blending: THREE.AdditiveBlending, side: THREE.FrontSide
             })
         );
         earthGroup.add(earthMesh);
 
-        // Wireframe Grid
         const earthGrid = new THREE.LineSegments(
             new THREE.WireframeGeometry(new THREE.SphereGeometry(CONFIG.earthRadius + 0.1, 24, 24)),
             new THREE.LineBasicMaterial({ color: CONFIG.colors.grid, transparent: true, opacity: 0.15 })
         );
         earthGroup.add(earthGrid);
 
-        // User Location Marker
+        // User Marker
         const userMarker = new THREE.Mesh(
-            new THREE.SphereGeometry(0.15, 16, 16),
+            new THREE.SphereGeometry(0.2, 16, 16),
             new THREE.MeshBasicMaterial({ color: CONFIG.colors.marker })
         );
         userMarker.visible = false;
         earthGroup.add(userMarker);
 
-        // Lighting
         const sun = new THREE.DirectionalLight(0xffffff, 0.75);
         sun.position.set(7, 6, 8);
         scene.add(sun);
 
         // --- 4. STAR & CONSTELLATION SYSTEM ---
         
-        // Helper: Spherical to Cartesian (RA in Hours, Dec in Degrees)
         function getStarPosition(raHours, decDeg, radius) {
             const phi = (90 - decDeg) * (Math.PI / 180);
-            const theta = (raHours * 15) * (Math.PI / 180); // Convert RA hours to degrees first
-            
-            // Standard Physics/Three.js spherical mapping
-            // x = r * sin(phi) * cos(theta)
-            // z = r * sin(phi) * sin(theta)
-            // y = r * cos(phi)
+            const theta = (raHours * 15) * (Math.PI / 180); 
             return new THREE.Vector3(
                 radius * Math.sin(phi) * Math.cos(theta),
                 radius * Math.cos(phi),
@@ -167,35 +147,33 @@
             );
         }
 
-        // 4a. Processing the Constellation Data
         const constellationPositions = [];
-        const constellationAttributes = {
-            sizes: [],
-            alphas: [],
-            positions: []
-        };
+        const constellationAttributes = { sizes: [], alphas: [], positions: [] };
 
+        // 4a. Process Constellation Stars (Fixed Visibility Logic)
         CONSTELLATION_DATA.forEach((star) => {
             const pos = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
             
-            // Store for Lines
             constellationPositions.push(pos);
-            
-            // Store for Points (Shader)
             constellationAttributes.positions.push(pos.x, pos.y, pos.z);
-            // Create Label
+            
+            // FIX: Re-added size/alpha logic so stars are visible!
+            // Calculate size based on magnitude (smaller mag = brighter/bigger)
+            const size = Math.max(3.0, 6.0 - star.mag);
+            constellationAttributes.sizes.push(size);
+            constellationAttributes.alphas.push(1.0); 
+
             const div = document.createElement('div');
-            div.className = star.name === "Alderamin" ? 'star-label highlight' : 'star-label';
+            div.className = 'star-label';
             div.textContent = star.name;
             const label = new CSS2DObject(div);
             label.position.copy(pos);
             scene.add(label);
         });
 
-        // 4b. Background Stars (Random)
+        // 4b. Background Stars
         for (let i = 0; i < CONFIG.starCount; i++) {
-            // Random point on sphere
-            const r = CONFIG.skyRadius * (0.8 + Math.random() * 0.4); // Vary depth slightly
+            const r = CONFIG.skyRadius * (0.8 + Math.random() * 0.4);
             const theta = 2 * Math.PI * Math.random();
             const phi = Math.acos(2 * Math.random() - 1);
             
@@ -204,95 +182,64 @@
             const z = r * Math.cos(phi);
 
             constellationAttributes.positions.push(x, y, z);
-            constellationAttributes.sizes.push(Math.random() * 2.0 + 0.5); // Small background stars
+            constellationAttributes.sizes.push(Math.random() * 2.0 + 0.5);
             constellationAttributes.alphas.push(Math.random() * 0.5 + 0.2);
         }
 
-        // 4c. Merged BufferGeometry for Shader
+        // 4c. Geometry & Material
         const starGeometry = new THREE.BufferGeometry();
         starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(constellationAttributes.positions, 3));
         starGeometry.setAttribute('aBaseSize', new THREE.Float32BufferAttribute(constellationAttributes.sizes, 1));
         starGeometry.setAttribute('aAlpha', new THREE.Float32BufferAttribute(constellationAttributes.alphas, 1));
 
-        // 4d. The Shader Material (Your original request)
         const starMaterial = new THREE.ShaderMaterial({
-            uniforms: {
-                time: { value: 0 },
-                pointTexture: { value: starTexture }
-            },
+            uniforms: { time: { value: 0 }, pointTexture: { value: starTexture } },
             vertexShader: `
-                attribute float aBaseSize;
-                attribute float aAlpha;
-                varying float vAlpha;
+                attribute float aBaseSize; attribute float aAlpha; varying float vAlpha;
                 void main() {
                     vAlpha = aAlpha;
                     vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
-                    // Size attenuation: Larger when closer
                     gl_PointSize = aBaseSize * (300.0 / -mvPos.z);
                     gl_Position = projectionMatrix * mvPos;
                 }
             `,
             fragmentShader: `
-                uniform float time;
-                uniform sampler2D pointTexture;
-                varying float vAlpha;
+                uniform float time; uniform sampler2D pointTexture; varying float vAlpha;
                 void main() {
                     vec4 color = texture2D(pointTexture, gl_PointCoord);
                     if (color.a < 0.5) discard;
-                    
-                    // Simple twinkle effect
                     float twinkle = 0.8 + 0.2 * sin(time * 5.0 + gl_FragCoord.x);
-                    
                     gl_FragColor = vec4(vec3(1.0), vAlpha * color.a * twinkle);
                 }
             `,
-            transparent: true,
-            depthWrite: false,
-            blending: THREE.AdditiveBlending
+            transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
         });
 
         const starSystem = new THREE.Points(starGeometry, starMaterial);
         scene.add(starSystem);
 
-        // 4e. Constellation Lines (UPDATED for Width and Brightness)
+        // 4d. Constellation Tube (Fixed Closed Loop)
+        // 'true' as the second argument closes the curve
+        const path = new THREE.CatmullRomCurve3(constellationPositions, true);
         
-        // 1. Create a smooth 3D path from the star points
-        const path = new THREE.CatmullRomCurve3(constellationPositions);
+        // 'true' as the last argument closes the tube geometry
+        const tubeGeometry = new THREE.TubeGeometry(path, 64, 0.2, 8, true);
         
-        // 2. Create a Tube Geometry 
-        // Parameters: (path, segments, radius, radialSegments, closed)
-        // CHANGE '0.08' to make it thicker or thinner
-        const tubeGeometry = new THREE.TubeGeometry(path, 64, 0.2, 8, false);
-        
-        // 3. Use MeshBasicMaterial (It glows and isn't affected by shadows)
         const tubeMaterial = new THREE.MeshBasicMaterial({ 
-            color: 0x00ffff, // Cyan color (Super Bright)
-            transparent: true,
-            opacity: 0.9 
+            color: 0x00ffff, transparent: true, opacity: 0.9 
         });
-        
         const constellationLines = new THREE.Mesh(tubeGeometry, tubeMaterial);
         scene.add(constellationLines);
 
-        // --- 5. ANIMATION LOGIC ---
-        let state = {
-            locating: true,
-            rotatingToUser: false,
-            pinned: false
-        };
-        
-        const targetQuat = new THREE.Quaternion();
+        // --- 5. LOCATION & ANIMATION ---
+        let state = { locating: true, rotatingToUser: false, targetY: 0 };
         const STATUS = document.getElementById('status');
 
-        // Mock: Find User Location after 3 seconds
-        setTimeout(() => {
-            // Mock Coordinates (e.g., somewhere in Asia)
-            const userLat = 20.5; 
-            const userLon = 78.9; 
+        function updateLocation(lat, lon) {
+            // Convert Lat/Lon to 3D position on Earth Sphere
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180); // Offset for texture mapping
             
-            // Place Marker
-            const phi = (90 - userLat) * (Math.PI / 180);
-            const theta = (userLon + 180) * (Math.PI / 180);
             const x = -(CONFIG.earthRadius * Math.sin(phi) * Math.cos(theta));
             const z = (CONFIG.earthRadius * Math.sin(phi) * Math.sin(theta));
             const y = (CONFIG.earthRadius * Math.cos(phi));
@@ -300,40 +247,63 @@
             userMarker.position.set(x, y, z);
             userMarker.visible = true;
 
-            // Calculate rotation to face user
-            // We want the earth to rotate so the marker faces +Z (camera)
-            // A simple way is to use LookAt on a dummy object or mathematical conversion
-            // Here we just stop the spin and let the user explore
-            
+            // Calculate Target Rotation to face the user
+            // We want to rotate the Earth so the user's Longitude faces the camera (Positive Z)
+            // Camera is at +Z. 
+            // The Earth texture usually aligns such that Lon 0 is at +Z when Rotation Y is 0 (or PI, depending on texture).
+            // We calculate the offset needed.
+            state.targetY = (lon * Math.PI / 180) - (Math.PI / 2); // Adjust offset based on texture wrap
+
             state.locating = false;
             state.rotatingToUser = true;
-            STATUS.textContent = "Signal Lock Established. Coordinates Confirmed.";
-        }, 3000);
+            STATUS.textContent = `Signal Locked: ${lat.toFixed(2)}°, ${lon.toFixed(2)}°`;
+        }
+
+        // Trigger Geolocation
+        if (navigator.geolocation) {
+            STATUS.textContent = "Scanning Biometric Location...";
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    updateLocation(position.coords.latitude, position.coords.longitude);
+                },
+                (error) => {
+                    console.warn("Geolocation denied/failed. Using Fallback.");
+                    STATUS.textContent = "Location Signal Weak. Using Last Known Position.";
+                    // Fallback to coordinates (Central India approx)
+                    setTimeout(() => updateLocation(20.59, 78.96), 2000); 
+                }
+            );
+        } else {
+            // Browser doesn't support, use fallback
+            setTimeout(() => updateLocation(20.59, 78.96), 2000);
+        }
 
         function animate() {
             requestAnimationFrame(animate);
-            const delta = clock.getDelta();
             const elapsed = clock.getElapsedTime();
-
-            // Update Shader Time for Twinkle
             starMaterial.uniforms.time.value = elapsed;
 
-            // Earth Animation State Machine
             if (state.locating) {
-                earthGroup.rotation.y += 0.02; // Fast Scan
+                earthGroup.rotation.y += 0.05; // Fast scan
             } else if (state.rotatingToUser) {
-                // Decelerate and stop (Simplified for visual effect)
-                earthGroup.rotation.y = THREE.MathUtils.lerp(earthGroup.rotation.y, earthGroup.rotation.y + 0.0005, 0.1);
+                // Smoothly interpolate current rotation to target rotation
+                // Note: We use a simple lerp. For full 360 correctness we'd use quaternions, 
+                // but this suffices for a visual demo.
+                const currentY = earthGroup.rotation.y % (Math.PI * 2);
+                let diff = state.targetY - currentY;
                 
-                // Add a "Settle" logic here if needed, for now we transition to slow spin
-                if(Math.random() > 0.95) { 
+                // Handle wrap-around so it takes shortest path
+                if (diff > Math.PI) diff -= Math.PI * 2;
+                if (diff < -Math.PI) diff += Math.PI * 2;
+
+                earthGroup.rotation.y += diff * 0.05;
+
+                if (Math.abs(diff) < 0.001) {
                     state.rotatingToUser = false;
-                    state.pinned = true;
                 }
             } else {
-                // Idle Spin
+                // Idle rotation once found
                 earthGroup.rotation.y += 0.0005;
-                // Parallax: Background stars rotate slowly opposite way
                 starSystem.rotation.y -= 0.0001;
             }
 
@@ -342,7 +312,6 @@
             labelRenderer.render(scene, camera);
         }
 
-        // --- 6. RESIZE HANDLER ---
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
@@ -350,7 +319,6 @@
             labelRenderer.setSize(window.innerWidth, window.innerHeight);
         });
 
-        // Start Loop
         animate();
 
     </script>
