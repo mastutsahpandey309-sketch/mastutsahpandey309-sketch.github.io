@@ -164,6 +164,7 @@
         document.body.appendChild(labelRenderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.minDistance = 20;
