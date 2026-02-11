@@ -137,6 +137,14 @@
             {"ra":21.30963, "dec":62.585573, "mag":2.45, "name":"Alderamin"}, 
             {"ra":22.82802, "dec":66.200408, "mag":3.5,  "name":"32Iot Cep"}
         ];
+        const CONSTELLATION_DRAW_ORDER = ['Errai', 'Alfirk', '32Iot Cep', 'Alderamin', 'Zeta Cephai'];
+        const ALIGN_TARGETS = {
+            'Errai': new THREE.Vector2(0.00, -0.62),
+            'Alfirk': new THREE.Vector2(-0.10, -0.79),
+            '32Iot Cep': new THREE.Vector2(0.10, -0.79),
+            'Zeta Cephai': new THREE.Vector2(-0.08, -0.92),
+            'Alderamin': new THREE.Vector2(0.08, -0.92)
+        };
 
         // --- 2. SCENE SETUP ---
         const scene = new THREE.Scene();
@@ -229,6 +237,7 @@
         // --- 5. STAR GENERATION ---
         const allStarData = []; 
         const constellationPathPoints = [];
+        const constellationByName = {};
         const geoPositions = [];
         const geoSizes = [];
         const geoAlphas = [];
@@ -236,7 +245,7 @@
         // 5a. Constellation Stars
         CONSTELLATION_DATA.forEach((star) => {
             const pos = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
-            constellationPathPoints.push(pos);
+            constellationByName[star.name] = pos.clone();
             geoPositions.push(pos.x, pos.y, pos.z);
             geoSizes.push(Math.max(5.0, 8.0 - star.mag));
             geoAlphas.push(1.0);
@@ -255,6 +264,12 @@
             const label = new CSS2DObject(div);
             label.position.copy(pos);
             earthGroup.add(label); // FIX: Parent to Earth so they rotate together
+        });
+
+        CONSTELLATION_DRAW_ORDER.forEach((name) => {
+            if (constellationByName[name]) {
+                constellationPathPoints.push(constellationByName[name].clone());
+            }
         });
 
         // 5b. Background Stars
