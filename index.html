@@ -183,18 +183,6 @@
             
             // Store for Points (Shader)
             constellationAttributes.positions.push(pos.x, pos.y, pos.z);
-            
-            // Logic: Is this Alderamin?
-            if (star.name === "Alderamin") {
-                constellationAttributes.sizes.push(10.0); // SUPER BRIGHT/LARGE
-                constellationAttributes.alphas.push(1.0);
-            } else {
-                // Normal scaling based on magnitude (inverse relationship: lower mag = brighter)
-                const size = Math.max(3.0, 6.0 - star.mag); 
-                constellationAttributes.sizes.push(size);
-                constellationAttributes.alphas.push(0.9);
-            }
-
             // Create Label
             const div = document.createElement('div');
             div.className = star.name === "Alderamin" ? 'star-label highlight' : 'star-label';
