@@ -25,16 +25,16 @@
             border-radius: 0 4px 4px 0;
         }
 
-        /* Hover Data Card (The "Floating" Box on Hover) */
+        /* Hover Data Card */
         #star-intel {
             position: absolute;
-            display: none; /* Hidden until hover */
+            display: none;
             background: rgba(0, 10, 20, 0.9);
             border: 1px solid #7dd3ff;
             color: #e0f7ff;
             padding: 12px;
             border-radius: 4px;
-            pointer-events: none; /* Mouse ignores it */
+            pointer-events: none;
             z-index: 20;
             font-size: 12px;
             box-shadow: 0 0 15px rgba(125, 211, 255, 0.4);
@@ -52,7 +52,7 @@
         .data-label { color: #88c0d0; }
         .data-val { color: #fff; font-weight: bold; }
         
-        /* Permanent Star Labels (For Constellations) */
+        /* Permanent Star Labels */
         .constellation-label {
             color: #7dd3ff;
             font-size: 11px;
@@ -94,18 +94,17 @@
 
         // --- 1. CONFIGURATION ---
         const CONFIG = {
-            earthRadius: 15,  // Bigger Earth
+            earthRadius: 15,
             skyRadius: 100,
-            starCount: 2500,  // Total background stars
+            starCount: 2500,
             colors: {
                 earth: 0xaaaaaa,
                 grid: 0xffffff,
                 marker: 0xff3333,
-                lines: 0x00ffff, // Cyan lines
+                lines: 0x00ffff,
             }
         };
 
-        // Specific Constellation Data
         const CONSTELLATION_DATA = [
             {"ra":23.65582, "dec":77.632276, "mag":3.21, "name":"Errai"},
             {"ra":21.477662,"dec":70.560716, "mag":3.23, "name":"Alfirk"},
@@ -116,21 +115,19 @@
 
         // --- 2. SCENE SETUP ---
         const scene = new THREE.Scene();
-        
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 30, 50); // Moved back to see bigger Earth
+        camera.position.set(0, 30, 50);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.setPixelRatio(window.devicePixelRatio);
         document.body.appendChild(renderer.domElement);
 
-        // CSS2D Renderer for Labels
         const labelRenderer = new CSS2DRenderer();
         labelRenderer.setSize(window.innerWidth, window.innerHeight);
         labelRenderer.domElement.style.position = 'absolute';
         labelRenderer.domElement.style.top = '0px';
-        labelRenderer.domElement.style.pointerEvents = 'none'; // CRITICAL: Lets mouse clicks pass through
+        labelRenderer.domElement.style.pointerEvents = 'none'; 
         document.body.appendChild(labelRenderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
@@ -177,7 +174,6 @@
         scene.add(sun);
 
         // --- 4. DATA & UTILS ---
-        
         function getStarPosition(raHours, decDeg, radius) {
             const phi = (90 - decDeg) * (Math.PI / 180);
             const theta = (raHours * 15) * (Math.PI / 180); 
@@ -188,19 +184,14 @@
             );
         }
 
-        // Logic to generate the "RadZZMagXXDecYY" string
         function generateProceduralName(pos, mag) {
             const r = Math.round(pos.length()).toString();
-            const m = (mag * 10).toFixed(0).toString(); // Multiplying to get digits
-            
-            // Calculate Dec from position for accuracy
-            // y = r * cos(phi) -> phi = acos(y/r) -> dec = 90 - phi_deg
+            const m = (mag * 10).toFixed(0).toString();
             const rVal = pos.length();
             const phi = Math.acos(pos.y / rVal);
             const decDeg = Math.abs(90 - (phi * 180 / Math.PI));
             const d = Math.round(decDeg).toString();
 
-            // Safe slice to get first 2 digits (pad with 0 if single digit)
             const radZZ = r.padStart(2, '0').substring(0, 2);
             const magXX = m.padStart(2, '0').substring(0, 2);
             const decYY = d.padStart(2, '0').substring(0, 2);
@@ -209,38 +200,28 @@
         }
 
         // --- 5. STAR GENERATION ---
-        
-        // We will store ALL stars (background + constellation) in a single array for Raycasting
         const allStarData = []; 
         const constellationPathPoints = [];
-
-        // Arrays for BufferGeometry
         const geoPositions = [];
         const geoSizes = [];
         const geoAlphas = [];
 
-        // 5a. Constellation Stars (ALWAYS VISIBLE LABELS)
+        // 5a. Constellation Stars
         CONSTELLATION_DATA.forEach((star) => {
             const pos = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
-            
             constellationPathPoints.push(pos);
             geoPositions.push(pos.x, pos.y, pos.z);
-            
-            // Visuals: Bigger, brighter
-            const size = Math.max(5.0, 8.0 - star.mag); 
-            geoSizes.push(size);
+            geoSizes.push(Math.max(5.0, 8.0 - star.mag));
             geoAlphas.push(1.0);
 
-            // Add to Interaction Data
             allStarData.push({
                 position: pos.clone(),
-                name: star.name, // Explicit Name
+                name: star.name,
                 mag: star.mag,
                 dec: star.dec.toFixed(1),
                 rad: CONFIG.skyRadius.toFixed(0)
             });
 
-            // PERMANENT LABEL (Floating Text)
             const div = document.createElement('div');
             div.className = 'constellation-label';
             div.textContent = star.name;
@@ -249,10 +230,9 @@
             scene.add(label);
         });
 
-        // 5b. Background Stars (PROCEDURAL NAMES)
+        // 5b. Background Stars
         for (let i = 0; i < CONFIG.starCount; i++) {
-            // Random spherical coordinates
-            const r = CONFIG.skyRadius * (0.85 + Math.random() * 0.3); // Vary radius (85-115)
+            const r = CONFIG.skyRadius * (0.85 + Math.random() * 0.3);
             const theta = 2 * Math.PI * Math.random();
             const phi = Math.acos(2 * Math.random() - 1);
             
@@ -268,20 +248,18 @@
             geoSizes.push(size);
             geoAlphas.push(Math.random() * 0.6 + 0.1);
 
-            // Add to Interaction Data (Only if bright enough to be worth clicking)
-            // Or add all of them if you want full interaction
             if (size > 1.0) {
                 allStarData.push({
                     position: pos,
-                    name: null, // No database name -> triggers procedural logic
+                    name: null, 
                     mag: mag,
-                    dec: null, // Will calc on fly
+                    dec: null, 
                     rad: r
                 });
             }
         }
 
-        // 5c. Build Geometry
+        // 5c. Geometry
         const starGeometry = new THREE.BufferGeometry();
         starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(geoPositions, 3));
         starGeometry.setAttribute('aBaseSize', new THREE.Float32BufferAttribute(geoSizes, 1));
@@ -313,8 +291,7 @@
         const starSystem = new THREE.Points(starGeometry, starMaterial);
         scene.add(starSystem);
 
-        // 5d. Constellation Tube (CLOSED LOOP)
-        // 'true' as 2nd arg -> closes the curve
+        // 5d. Constellation Tube
         const path = new THREE.CatmullRomCurve3(constellationPathPoints, true);
         const tubeGeometry = new THREE.TubeGeometry(path, 64, 0.25, 8, true);
         const tubeMaterial = new THREE.MeshBasicMaterial({ 
@@ -323,12 +300,8 @@
         const constellationLines = new THREE.Mesh(tubeGeometry, tubeMaterial);
         scene.add(constellationLines);
 
-
-        // --- 6. INTERACTION (RAYCASTER) ---
-        const raycaster = new THREE.Raycaster();
+        // --- 6. UI ELEMENTS ---
         const mouse = new THREE.Vector2();
-        
-        // UI Elements
         const intelCard = document.getElementById('star-intel');
         const elName = document.getElementById('intel-name');
         const elMag = document.getElementById('intel-mag');
@@ -338,8 +311,6 @@
         window.addEventListener('mousemove', (event) => {
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            
-            // Move tooltip near mouse
             intelCard.style.left = (event.clientX + 20) + 'px';
             intelCard.style.top = (event.clientY + 20) + 'px';
         });
@@ -359,20 +330,18 @@
             userMarker.position.set(x, y, z);
             userMarker.visible = true;
 
-            // Target Y Rotation to center user
             state.targetY = -(lon * Math.PI / 180) - (Math.PI / 2);
             state.locating = false;
             state.rotatingToUser = true;
-            STATUS.textContent = `Coordinates Locked: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+            STATUS.textContent = `Locked: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
             STATUS.style.borderLeftColor = "#00ffff"; 
         }
 
-        // Get Location
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (p) => updateLocation(p.coords.latitude, p.coords.longitude),
                 (e) => {
-                    STATUS.textContent = "GPS Denied. Defaulting to Asia Sector.";
+                    STATUS.textContent = "GPS Denied. Defaulting...";
                     setTimeout(() => updateLocation(20.59, 78.96), 1500);
                 }
             );
@@ -380,44 +349,29 @@
             setTimeout(() => updateLocation(20.59, 78.96), 1500);
         }
 
-
-        // GLOBAL VARIABLES FOR RAYCASTING (Place these right before animate)
+        // --- 8. ANIMATION LOOP ---
         const tempV = new THREE.Vector3();
-        const raycaster = new THREE.Raycaster(); // Keep just in case needed for other things
         
         function animate() {
             requestAnimationFrame(animate);
             const elapsed = clock.getElapsedTime();
             starMaterial.uniforms.time.value = elapsed;
 
-            // --- 1. STAR HOVER LOGIC (Screen Space) ---
-            // This method works perfectly even when zoomed in!
-            
+            // --- HOVER LOGIC (Screen Space) ---
             let closestStar = null;
-            let minDist = 15; // Pixel distance tolerance (Hitbox size)
+            let minDist = 15; // Pixel tolerance
 
-            // Only check if we aren't in the "Locating" fast-spin mode
             if (!state.locating) {
-                
-                // We use a classic loop for performance
                 for (let i = 0; i < allStarData.length; i++) {
                     const star = allStarData[i];
                     
-                    // 1. Get 3D position
                     tempV.copy(star.position);
-                    
-                    // 2. Project to 2D Screen Space
-                    // (Standard Three.js math to go from 3D world -> 2D screen)
-                    tempV.project(camera);
+                    tempV.project(camera); // 3D -> 2D Normalized
 
-                    // 3. Check if star is in front of camera (z < 1)
-                    if (tempV.z < 1) {
-                        // Convert normalized coordinates (-1 to +1) to pixel coordinates
+                    if (tempV.z < 1) { // In front of camera
                         const x = (tempV.x * .5 + .5) * window.innerWidth;
                         const y = -(tempV.y * .5 - .5) * window.innerHeight;
-
-                        // Calculate distance from mouse pointer
-                        // Mouse pointer needs to be converted to pixels too!
+                        
                         const mousePixelX = (mouse.x * .5 + .5) * window.innerWidth;
                         const mousePixelY = -(mouse.y * .5 - .5) * window.innerHeight;
 
@@ -427,32 +381,27 @@
 
                         if (dist < minDist) {
                             closestStar = star;
-                            break; // Stop looking, we found one!
+                            break; 
                         }
                     }
                 }
             }
 
-            // --- 2. UPDATE UI BASED ON HOVER ---
+            // Update UI
             if (closestStar) {
                 intelCard.style.display = 'block';
                 document.body.style.cursor = 'crosshair';
 
-                // Case A: Named Star from Database
                 if (closestStar.name) {
                     elName.textContent = closestStar.name;
-                    elName.style.color = "#00ffff"; // Cyan
+                    elName.style.color = "#00ffff"; 
                     elMag.textContent = closestStar.mag;
                     elDec.textContent = closestStar.dec;
                     elRad.textContent = closestStar.rad;
-                } 
-                // Case B: Procedural Star (The "RadZZ..." format)
-                else {
-                    const procName = generateProceduralName(closestStar.position, closestStar.mag);
-                    elName.textContent = procName;
-                    elName.style.color = "#ffcc00"; // Gold
+                } else {
+                    elName.textContent = generateProceduralName(closestStar.position, closestStar.mag);
+                    elName.style.color = "#ffcc00"; 
                     
-                    // Generate rough data for display
                     elMag.textContent = closestStar.mag.toFixed(2);
                     const rVal = closestStar.position.length();
                     const phi = Math.acos(closestStar.position.y / rVal);
@@ -466,7 +415,7 @@
                 document.body.style.cursor = 'default';
             }
 
-            // --- 3. EARTH ANIMATION ---
+            // --- EARTH ANIMATION ---
             if (state.locating) {
                 earthGroup.rotation.y += 0.05;
             } else if (state.rotatingToUser) {
@@ -480,56 +429,6 @@
                 earthGroup.rotation.y += 0.0003;
             }
 
-            starSystem.rotation.y -= 0.0001;
-            constellationLines.rotation.y -= 0.0001;
-
-            controls.update();
-            renderer.render(scene, camera);
-            labelRenderer.render(scene, camera);
-        }
-
-            // --- Earth Animation (Unchanged) ---
-            if (state.locating) {
-                earthGroup.rotation.y += 0.05;
-            } else if (state.rotatingToUser) {
-                let currentY = earthGroup.rotation.y;
-                let diff = state.targetY - currentY;
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-                earthGroup.rotation.y += diff * 0.05;
-                if (Math.abs(diff) < 0.001) state.rotatingToUser = false;
-            } else {
-                earthGroup.rotation.y += 0.0003; 
-            }
-
-            starSystem.rotation.y -= 0.0001;
-            constellationLines.rotation.y -= 0.0001;
-
-            controls.update();
-            renderer.render(scene, camera);
-            labelRenderer.render(scene, camera);
-        }
-
-            // --- Earth Animation ---
-            if (state.locating) {
-                earthGroup.rotation.y += 0.05;
-            } else if (state.rotatingToUser) {
-                let currentY = earthGroup.rotation.y;
-                let diff = state.targetY - currentY;
-                
-                while (diff > Math.PI) diff -= Math.PI * 2;
-                while (diff < -Math.PI) diff += Math.PI * 2;
-
-                earthGroup.rotation.y += diff * 0.05;
-                
-                if (Math.abs(diff) < 0.001) {
-                    state.rotatingToUser = false;
-                }
-            } else {
-                earthGroup.rotation.y += 0.0003; // Slow spin
-            }
-
-            // Parallax
             starSystem.rotation.y -= 0.0001;
             constellationLines.rotation.y -= 0.0001;
 
