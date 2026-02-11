@@ -381,91 +381,112 @@
         }
 
 
+        // GLOBAL VARIABLES FOR RAYCASTING (Place these right before animate)
+        const tempV = new THREE.Vector3();
+        const raycaster = new THREE.Raycaster(); // Keep just in case needed for other things
+        
         function animate() {
             requestAnimationFrame(animate);
             const elapsed = clock.getElapsedTime();
             starMaterial.uniforms.time.value = elapsed;
 
-            // --- IMPROVED Raycasting Logic (Screen Space) ---
-            
-            // 1. Convert mouse coordinates to a Vector3 for unprojecting
-            // (Already done by event listener into 'mouse' var)
+            // --- 1. STAR HOVER LOGIC (Screen Space) ---
+            // This method works perfectly even when zoomed in!
             
             let closestStar = null;
-            // Threshold in pixels (how close mouse needs to be to star center)
-            let minScreenDist = 10.0; 
+            let minDist = 15; // Pixel distance tolerance (Hitbox size)
 
-            // Temporary vector to hold star position in screen coords
-            const screenPos = new THREE.Vector3();
-
-            // Only check interaction if we aren't spinning fast
+            // Only check if we aren't in the "Locating" fast-spin mode
             if (!state.locating) {
                 
+                // We use a classic loop for performance
                 for (let i = 0; i < allStarData.length; i++) {
-                    const s = allStarData[i];
+                    const star = allStarData[i];
                     
-                    // 1. Copy star 3D position
-                    screenPos.copy(s.position);
+                    // 1. Get 3D position
+                    tempV.copy(star.position);
                     
-                    // 2. Project it to 2D Screen Space
-                    // This transforms x,y to range [-1, +1]
-                    screenPos.project(camera);
-                    
-                    // 3. Check if star is actually in front of camera (z < 1)
-                    if (screenPos.z < 1.0) {
-                        
-                        // 4. Convert [-1, +1] to Pixel Coordinates
-                        const x = (screenPos.x * .5 + .5) * window.innerWidth;
-                        const y = -(screenPos.y * .5 - .5) * window.innerHeight;
-                        
-                        // 5. Convert Mouse [-1, +1] to Pixel Coordinates
+                    // 2. Project to 2D Screen Space
+                    // (Standard Three.js math to go from 3D world -> 2D screen)
+                    tempV.project(camera);
+
+                    // 3. Check if star is in front of camera (z < 1)
+                    if (tempV.z < 1) {
+                        // Convert normalized coordinates (-1 to +1) to pixel coordinates
+                        const x = (tempV.x * .5 + .5) * window.innerWidth;
+                        const y = -(tempV.y * .5 - .5) * window.innerHeight;
+
+                        // Calculate distance from mouse pointer
+                        // Mouse pointer needs to be converted to pixels too!
                         const mousePixelX = (mouse.x * .5 + .5) * window.innerWidth;
                         const mousePixelY = -(mouse.y * .5 - .5) * window.innerHeight;
-                        
-                        // 6. Calculate 2D Distance
+
                         const dx = x - mousePixelX;
                         const dy = y - mousePixelY;
-                        const dist = Math.sqrt(dx*dx + dy*dy);
-                        
-                        if (dist < minScreenDist) {
-                            minScreenDist = dist;
-                            closestStar = s;
+                        const dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist < minDist) {
+                            closestStar = star;
+                            break; // Stop looking, we found one!
                         }
                     }
                 }
             }
 
+            // --- 2. UPDATE UI BASED ON HOVER ---
             if (closestStar) {
                 intelCard.style.display = 'block';
                 document.body.style.cursor = 'crosshair';
 
-                // Display Logic (Same as before)
+                // Case A: Named Star from Database
                 if (closestStar.name) {
                     elName.textContent = closestStar.name;
+                    elName.style.color = "#00ffff"; // Cyan
                     elMag.textContent = closestStar.mag;
                     elDec.textContent = closestStar.dec;
                     elRad.textContent = closestStar.rad;
-                    elName.style.color = "#00ffff";
-                } else {
+                } 
+                // Case B: Procedural Star (The "RadZZ..." format)
+                else {
                     const procName = generateProceduralName(closestStar.position, closestStar.mag);
                     elName.textContent = procName;
+                    elName.style.color = "#ffcc00"; // Gold
+                    
+                    // Generate rough data for display
                     elMag.textContent = closestStar.mag.toFixed(2);
                     const rVal = closestStar.position.length();
                     const phi = Math.acos(closestStar.position.y / rVal);
                     const decDeg = Math.abs(90 - (phi * 180 / Math.PI));
+                    
                     elDec.textContent = decDeg.toFixed(1);
                     elRad.textContent = rVal.toFixed(1);
-                    elName.style.color = "#ffcc00";
                 }
-                
-                // Position card near mouse (Optional: snap to star instead)
-                // intelCard.style.left = (event.clientX + 20) + 'px'; // Handled by mousemove
-                
             } else {
                 intelCard.style.display = 'none';
                 document.body.style.cursor = 'default';
             }
 
+            // --- 3. EARTH ANIMATION ---
+            if (state.locating) {
+                earthGroup.rotation.y += 0.05;
+            } else if (state.rotatingToUser) {
+                let currentY = earthGroup.rotation.y;
+                let diff = state.targetY - currentY;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                earthGroup.rotation.y += diff * 0.05;
+                if (Math.abs(diff) < 0.001) state.rotatingToUser = false;
+            } else {
+                earthGroup.rotation.y += 0.0003;
+            }
+
+            starSystem.rotation.y -= 0.0001;
+            constellationLines.rotation.y -= 0.0001;
+
+            controls.update();
+            renderer.render(scene, camera);
+            labelRenderer.render(scene, camera);
+        }
 
             // --- Earth Animation (Unchanged) ---
             if (state.locating) {
