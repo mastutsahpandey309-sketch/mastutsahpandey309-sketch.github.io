@@ -94,7 +94,7 @@
 
         // --- 1. CONFIGURATION ---
         const CONFIG = {
-            earthRadius: 10,
+            earthRadius: 15,
             skyRadius: 100,
             starCount: 2500,
             colors: {
@@ -139,7 +139,7 @@
         const clock = new THREE.Clock();
         const texLoader = new THREE.TextureLoader();
 
-        // --- 3. EARTH SYSTEM ---
+        // --- 3. EARTH SYSTEM (PARENT GROUP) ---
         const earthGroup = new THREE.Group();
         scene.add(earthGroup);
 
@@ -215,7 +215,7 @@
             geoAlphas.push(1.0);
 
             allStarData.push({
-                position: pos.clone(),
+                position: pos.clone(), // Local position
                 name: star.name,
                 mag: star.mag,
                 dec: star.dec.toFixed(1),
@@ -227,7 +227,7 @@
             div.textContent = star.name;
             const label = new CSS2DObject(div);
             label.position.copy(pos);
-            scene.add(label);
+            earthGroup.add(label); // FIX: Parent to Earth so they rotate together
         });
 
         // 5b. Background Stars
@@ -250,7 +250,7 @@
 
             if (size > 1.0) {
                 allStarData.push({
-                    position: pos,
+                    position: pos, // Local Position
                     name: null, 
                     mag: mag,
                     dec: null, 
@@ -289,7 +289,7 @@
         });
 
         const starSystem = new THREE.Points(starGeometry, starMaterial);
-        scene.add(starSystem);
+        earthGroup.add(starSystem); // FIX: Parent to EarthGroup
 
         // 5d. Constellation Tube
         const path = new THREE.CatmullRomCurve3(constellationPathPoints, true);
@@ -298,7 +298,7 @@
             color: CONFIG.colors.lines, transparent: true, opacity: 0.9 
         });
         const constellationLines = new THREE.Mesh(tubeGeometry, tubeMaterial);
-        scene.add(constellationLines);
+        earthGroup.add(constellationLines); // FIX: Parent to EarthGroup
 
         // --- 6. UI ELEMENTS ---
         const mouse = new THREE.Vector2();
@@ -357,18 +357,27 @@
             const elapsed = clock.getElapsedTime();
             starMaterial.uniforms.time.value = elapsed;
 
-            // --- HOVER LOGIC (Screen Space) ---
+            // --- HOVER LOGIC (Synced with Earth Rotation) ---
             let closestStar = null;
             let minDist = 15; // Pixel tolerance
 
             if (!state.locating) {
+                // Since earthGroup is rotating, we must update the MatrixWorld
+                earthGroup.updateMatrixWorld();
+
                 for (let i = 0; i < allStarData.length; i++) {
                     const star = allStarData[i];
                     
+                    // 1. Get Local Position
                     tempV.copy(star.position);
-                    tempV.project(camera); // 3D -> 2D Normalized
+                    
+                    // 2. Transform Local -> World (Apply Earth Rotation)
+                    tempV.applyMatrix4(earthGroup.matrixWorld);
 
-                    if (tempV.z < 1) { // In front of camera
+                    // 3. Project World -> Screen
+                    tempV.project(camera); 
+
+                    if (tempV.z < 1) { 
                         const x = (tempV.x * .5 + .5) * window.innerWidth;
                         const y = -(tempV.y * .5 - .5) * window.innerHeight;
                         
@@ -416,6 +425,7 @@
             }
 
             // --- EARTH ANIMATION ---
+            // Stars now rotate automatically because they are children of earthGroup
             if (state.locating) {
                 earthGroup.rotation.y += 0.05;
             } else if (state.rotatingToUser) {
@@ -428,9 +438,6 @@
             } else {
                 earthGroup.rotation.y += 0.0003;
             }
-
-            starSystem.rotation.y -= 0.0001;
-            constellationLines.rotation.y -= 0.0001;
 
             controls.update();
             renderer.render(scene, camera);
