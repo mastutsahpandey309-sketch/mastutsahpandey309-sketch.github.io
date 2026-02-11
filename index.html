@@ -63,12 +63,37 @@
             white-space: nowrap;
             opacity: 0.9;
         }
+
+        #align-btn {
+            position: absolute;
+            left: 50%;
+            bottom: 26px;
+            transform: translateX(-50%);
+            padding: 12px 22px;
+            border: 1px solid #44d7ff;
+            border-radius: 999px;
+            background: rgba(0, 18, 32, 0.9);
+            color: #d8f7ff;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            font-weight: bold;
+            cursor: pointer;
+            box-shadow: 0 0 12px rgba(68, 215, 255, 0.45);
+            display: none;
+            pointer-events: auto;
+        }
+
+        #align-btn:hover {
+            background: rgba(0, 35, 55, 0.95);
+            box-shadow: 0 0 16px rgba(68, 215, 255, 0.75);
+        }
     </style>
 </head>
 <body>
 
     <div id="ui-layer">
         <div id="status">System Initializing...</div>
+        <button id="align-btn">Align to Cepheus</button>
     </div>
 
     <div id="star-intel">
@@ -112,6 +137,15 @@
             {"ra":21.30963, "dec":62.585573, "mag":2.45, "name":"Alderamin"}, 
             {"ra":22.82802, "dec":66.200408, "mag":3.5,  "name":"32Iot Cep"}
         ];
+        const CONSTELLATION_DRAW_ORDER = ['Errai', 'Alfirk', '32Iot Cep', 'Alderamin', 'Zeta Cephai'];
+        const ALIGN_TARGETS = {
+            // Requested house-like layout at bottom-center (small shape)
+            'Errai': new THREE.Vector2(0.00, -0.696),
+            'Alfirk': new THREE.Vector2(-0.06, -0.80),
+            '32Iot Cep': new THREE.Vector2(0.06, -0.80),
+            'Zeta Cephai': new THREE.Vector2(-0.05, -0.90),
+            'Alderamin': new THREE.Vector2(0.05, -0.90)
+        };
 
         // --- 2. SCENE SETUP ---
         const scene = new THREE.Scene();
@@ -131,6 +165,7 @@
         document.body.appendChild(labelRenderer.domElement);
 
         const controls = new OrbitControls(camera, renderer.domElement);
+        controls.target.set(0, 0, 0);
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.minDistance = 20;
@@ -138,6 +173,8 @@
 
         const clock = new THREE.Clock();
         const texLoader = new THREE.TextureLoader();
+        const loadingManager = new THREE.LoadingManager();
+        texLoader.manager = loadingManager;
 
         // --- 3. EARTH SYSTEM (PARENT GROUP) ---
         const earthGroup = new THREE.Group();
@@ -202,6 +239,7 @@
         // --- 5. STAR GENERATION ---
         const allStarData = []; 
         const constellationPathPoints = [];
+        const constellationByName = {};
         const geoPositions = [];
         const geoSizes = [];
         const geoAlphas = [];
@@ -209,7 +247,7 @@
         // 5a. Constellation Stars
         CONSTELLATION_DATA.forEach((star) => {
             const pos = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
-            constellationPathPoints.push(pos);
+            constellationByName[star.name] = pos.clone();
             geoPositions.push(pos.x, pos.y, pos.z);
             geoSizes.push(Math.max(5.0, 8.0 - star.mag));
             geoAlphas.push(1.0);
@@ -228,6 +266,12 @@
             const label = new CSS2DObject(div);
             label.position.copy(pos);
             earthGroup.add(label); // FIX: Parent to Earth so they rotate together
+        });
+
+        CONSTELLATION_DRAW_ORDER.forEach((name) => {
+            if (constellationByName[name]) {
+                constellationPathPoints.push(constellationByName[name].clone());
+            }
         });
 
         // 5b. Background Stars
@@ -316,8 +360,168 @@
         });
 
         // --- 7. ANIMATION STATE ---
-        let state = { locating: true, rotatingToUser: false, targetY: 0 };
+        let state = {
+            locating: true,
+            rotatingToUser: false,
+            targetY: 0,
+            assetsReady: false,
+            locationReady: false,
+            alignButtonShown: false,
+            aligningCepheus: false,
+            cepheusLocked: false,
+            alignTargetQuaternion: new THREE.Quaternion(),
+            alignStartDistance: camera.position.length(),
+            alignTargetDistance: camera.position.length()
+        };
         const STATUS = document.getElementById('status');
+        const alignBtn = document.getElementById('align-btn');
+        const cepheusCentroid = CONSTELLATION_DATA
+            .map((star) => getStarPosition(star.ra, star.dec, CONFIG.skyRadius))
+            .reduce((acc, p) => acc.add(p), new THREE.Vector3())
+            .multiplyScalar(1 / CONSTELLATION_DATA.length);
+
+        function maybeShowAlignButton() {
+            if (state.assetsReady && state.locationReady && !state.alignButtonShown) {
+                alignBtn.style.display = 'block';
+                state.alignButtonShown = true;
+                STATUS.textContent = 'Alignment Ready: Cepheus lock available';
+            }
+        }
+
+        loadingManager.onLoad = () => {
+            state.assetsReady = true;
+            maybeShowAlignButton();
+        };
+
+        function computeAlignmentPlan() {
+            const starVectors = {};
+            CONSTELLATION_DATA.forEach((star) => {
+                starVectors[star.name] = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
+            });
+
+            const targetNames = Object.keys(ALIGN_TARGETS);
+            const basisAxes = [
+                new THREE.Vector3(1, 0, 0),
+                new THREE.Vector3(0, 1, 0),
+                new THREE.Vector3(0, 0, 1)
+            ];
+
+            const lookDir = camera.position.clone().normalize();
+            const worldUp = new THREE.Vector3(0, 1, 0);
+            const tanHalfFov = Math.tan((camera.fov * Math.PI / 180) / 2);
+
+            function projectToNdc(point, q, distance) {
+                const worldPoint = point.clone().applyQuaternion(q);
+                const camPos = lookDir.clone().multiplyScalar(distance);
+
+                const zAxis = camPos.clone().normalize();
+                let xAxis = new THREE.Vector3().crossVectors(worldUp, zAxis);
+                if (xAxis.lengthSq() < 1e-8) {
+                    xAxis = new THREE.Vector3(1, 0, 0);
+                }
+                xAxis.normalize();
+                const yAxis = new THREE.Vector3().crossVectors(zAxis, xAxis).normalize();
+                const forward = zAxis.clone().negate();
+
+                const rel = worldPoint.sub(camPos);
+                const zCam = rel.dot(forward);
+                if (zCam <= 0.001) {
+                    return null;
+                }
+
+                const xCam = rel.dot(xAxis);
+                const yCam = rel.dot(yAxis);
+                return new THREE.Vector2(
+                    xCam / (zCam * tanHalfFov * camera.aspect),
+                    yCam / (zCam * tanHalfFov)
+                );
+            }
+
+            function alignmentCost(q, distance) {
+                let total = 0;
+
+                targetNames.forEach((name) => {
+                    const projected = projectToNdc(starVectors[name], q, distance);
+                    if (!projected) {
+                        total += 100;
+                        return;
+                    }
+
+                    const target = ALIGN_TARGETS[name];
+                    const dx = projected.x - target.x;
+                    const dy = projected.y - target.y;
+                    total += (dx * dx + dy * dy);
+                });
+
+                const centerProjected = projectToNdc(cepheusCentroid, q, distance);
+                if (centerProjected) {
+                    const centerDx = centerProjected.x;
+                    const centerDy = centerProjected.y + 0.82;
+                    total += 0.35 * (centerDx * centerDx + centerDy * centerDy);
+                } else {
+                    total += 100;
+                }
+
+                return total;
+            }
+
+            let bestQ = earthGroup.quaternion.clone().normalize();
+            let bestDistance = camera.position.length();
+            let bestCost = alignmentCost(bestQ, bestDistance);
+
+            const rotationSteps = [0.30, 0.15, 0.08, 0.04, 0.02, 0.01, 0.005];
+            const distanceSteps = [16, 8, 4, 2, 1, 0.5, 0.25];
+
+            for (let level = 0; level < rotationSteps.length; level++) {
+                const rotStep = rotationSteps[level];
+                const distStep = distanceSteps[level];
+
+                for (let iter = 0; iter < 50; iter++) {
+                    let improved = false;
+
+                    for (const axis of basisAxes) {
+                        for (const sign of [1, -1]) {
+                            const delta = new THREE.Quaternion().setFromAxisAngle(axis, sign * rotStep);
+                            const candidateQ = delta.clone().multiply(bestQ).normalize();
+                            const cost = alignmentCost(candidateQ, bestDistance);
+                            if (cost < bestCost) {
+                                bestCost = cost;
+                                bestQ = candidateQ;
+                                improved = true;
+                            }
+                        }
+                    }
+
+                    for (const sign of [1, -1]) {
+                        const candidateDistance = Math.min(130, Math.max(30, bestDistance + sign * distStep));
+                        const cost = alignmentCost(bestQ, candidateDistance);
+                        if (cost < bestCost) {
+                            bestCost = cost;
+                            bestDistance = candidateDistance;
+                            improved = true;
+                        }
+                    }
+
+                    if (!improved) break;
+                }
+            }
+
+            return { quaternion: bestQ, cameraDistance: bestDistance, score: bestCost };
+        }
+
+        alignBtn.addEventListener('click', () => {
+            const plan = computeAlignmentPlan();
+            state.alignTargetQuaternion.copy(plan.quaternion);
+            state.alignStartDistance = camera.position.length();
+            state.alignTargetDistance = plan.cameraDistance;
+            state.aligningCepheus = true;
+            state.cepheusLocked = false;
+
+            controls.enabled = false;
+            alignBtn.style.display = 'none';
+            STATUS.textContent = 'Aligning: Cepheus house shape...';
+            STATUS.style.borderLeftColor = '#44d7ff';
+        });
 
         function updateLocation(lat, lon) {
             const phi = (90 - lat) * (Math.PI / 180);
@@ -333,8 +537,10 @@
             state.targetY = -(lon * Math.PI / 180) - (Math.PI / 2);
             state.locating = false;
             state.rotatingToUser = true;
+            state.locationReady = true;
             STATUS.textContent = `Locked: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
             STATUS.style.borderLeftColor = "#00ffff"; 
+            maybeShowAlignButton();
         }
 
         if (navigator.geolocation) {
@@ -435,7 +641,25 @@
                 while (diff < -Math.PI) diff += Math.PI * 2;
                 earthGroup.rotation.y += diff * 0.05;
                 if (Math.abs(diff) < 0.001) state.rotatingToUser = false;
-            } else {
+            } else if (state.aligningCepheus) {
+                earthGroup.quaternion.slerp(state.alignTargetQuaternion, 0.06);
+
+                const dir = camera.position.clone().normalize();
+                const nextDistance = THREE.MathUtils.lerp(camera.position.length(), state.alignTargetDistance, 0.08);
+                camera.position.copy(dir.multiplyScalar(nextDistance));
+
+                if (
+                    earthGroup.quaternion.angleTo(state.alignTargetQuaternion) < 0.0025 &&
+                    Math.abs(camera.position.length() - state.alignTargetDistance) < 0.05
+                ) {
+                    earthGroup.quaternion.copy(state.alignTargetQuaternion);
+                    camera.position.copy(camera.position.clone().normalize().multiplyScalar(state.alignTargetDistance));
+                    state.aligningCepheus = false;
+                    state.cepheusLocked = true;
+                    STATUS.textContent = 'Cepheus aligned: house shape locked at bottom center';
+                    STATUS.style.borderLeftColor = '#80ff80';
+                }
+            } else if (!state.cepheusLocked) {
                 earthGroup.rotation.y += 0.0003;
             }
 
