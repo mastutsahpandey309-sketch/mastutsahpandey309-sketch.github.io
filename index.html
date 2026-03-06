@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Deep Space Network: Cepheus</title>
+    <title>Deep Space Network: Topology</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #030305; font-family: 'Courier New', Courier, monospace; }
+        body { margin: 0; overflow: hidden; background-color: #050505; font-family: 'Courier New', Courier, monospace; }
         
         /* UI Overlay */
         #ui-layer {
@@ -30,31 +30,28 @@
         #star-intel {
             position: absolute;
             display: none;
-            background: rgba(0, 15, 30, 0.95);
+            background: rgba(0, 10, 20, 0.9);
             border: 1px solid #7dd3ff;
             color: #e0f7ff;
-            padding: 15px;
+            padding: 12px;
             border-radius: 4px;
             pointer-events: none;
             z-index: 20;
             font-size: 12px;
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.3);
-            min-width: 170px;
-            backdrop-filter: blur(5px);
+            box-shadow: 0 0 15px rgba(125, 211, 255, 0.4);
+            min-width: 160px;
         }
         #star-intel h3 { 
-            margin: 0 0 10px 0; 
+            margin: 0 0 8px 0; 
             color: #00ffff; 
-            font-size: 15px; 
+            font-size: 14px; 
             border-bottom: 1px solid rgba(125, 211, 255, 0.3); 
             padding-bottom: 5px; 
-            text-shadow: 0 0 8px #00ffff;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            text-shadow: 0 0 5px #00ffff;
         }
-        .data-row { display: flex; justify-content: space-between; margin-bottom: 6px; }
-        .data-label { color: #88c0d0; opacity: 0.8; }
-        .data-val { color: #fff; font-weight: bold; font-family: monospace; }
+        .data-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .data-label { color: #88c0d0; }
+        .data-val { color: #fff; font-weight: bold; }
         
         /* Permanent Star Labels */
         .constellation-label {
@@ -62,7 +59,7 @@
             font-size: 11px;
             font-weight: bold;
             margin-top: -20px; 
-            text-shadow: 0 0 6px #000, 0 0 3px #7dd3ff;
+            text-shadow: 0 0 4px #000, 0 0 2px #7dd3ff;
             pointer-events: none; 
             white-space: nowrap;
             opacity: 0.9;
@@ -72,41 +69,26 @@
         .btn-core {
             position: absolute;
             left: 50%;
-            bottom: 30px;
+            bottom: 26px;
             transform: translateX(-50%);
-            padding: 14px 28px;
-            border-radius: 4px;
-            letter-spacing: 2px;
+            padding: 12px 22px;
+            border-radius: 999px;
+            letter-spacing: 1px;
             text-transform: uppercase;
             font-weight: bold;
             cursor: pointer;
             display: none;
             pointer-events: auto;
             transition: all 0.3s ease;
-            background: rgba(0, 18, 32, 0.85);
-            backdrop-filter: blur(4px);
-        }
-
-        #identity-btn {
             border: 1px solid #44d7ff;
+            background: rgba(0, 18, 32, 0.9);
             color: #d8f7ff;
-            box-shadow: 0 0 15px rgba(68, 215, 255, 0.4);
-        }
-        #identity-btn:hover {
-            background: rgba(0, 45, 75, 0.95);
-            box-shadow: 0 0 25px rgba(68, 215, 255, 0.8);
-            transform: translateX(-50%) scale(1.05);
+            box-shadow: 0 0 12px rgba(68, 215, 255, 0.45);
         }
 
-        #wrap-btn {
-            border: 1px solid #ff00ff;
-            color: #ffdbfa;
-            box-shadow: 0 0 15px rgba(255, 0, 255, 0.4);
-        }
-        #wrap-btn:hover {
-            background: rgba(45, 0, 45, 0.95);
-            box-shadow: 0 0 25px rgba(255, 0, 255, 0.8);
-            transform: translateX(-50%) scale(1.05);
+        .btn-core:hover {
+            background: rgba(0, 35, 55, 0.95);
+            box-shadow: 0 0 16px rgba(68, 215, 255, 0.75);
         }
     </style>
 </head>
@@ -123,7 +105,6 @@
         <div class="data-row"><span class="data-label">MAG:</span> <span id="intel-mag" class="data-val">--</span></div>
         <div class="data-row"><span class="data-label">DEC:</span> <span id="intel-dec" class="data-val">--</span></div>
         <div class="data-row"><span class="data-label">RAD:</span> <span id="intel-rad" class="data-val">--</span></div>
-        <div class="data-row"><span class="data-label">CLASS:</span> <span id="intel-class" class="data-val">--</span></div>
     </div>
 
     <script type="importmap">
@@ -146,8 +127,9 @@
             skyRadius: 100,
             starCount: 2500,
             colors: {
-                earth: 0x888888,
+                earth: 0xaaaaaa,
                 grid: 0xffffff,
+                marker: 0x44d7ff, // Cyan marker for user location
                 lines: 0x00ffff,
             }
         };
@@ -163,10 +145,8 @@
 
         // --- 2. SCENE SETUP ---
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x030305, 0.002); // Adds deep space depth
-
         const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 1000);
-        camera.position.set(0, 30, 60);
+        camera.position.set(0, 30, 50);
 
         const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
@@ -185,7 +165,7 @@
         controls.enableDamping = true;
         controls.dampingFactor = 0.05;
         controls.minDistance = 20;
-        controls.maxDistance = 200;
+        controls.maxDistance = 250;
 
         const clock = new THREE.Clock();
         const texLoader = new THREE.TextureLoader();
@@ -203,17 +183,24 @@
             new THREE.SphereGeometry(CONFIG.earthRadius, 64, 64),
             new THREE.MeshBasicMaterial({
                 map: earthMap,
-                transparent: true, opacity: 0.8, color: CONFIG.colors.earth,
-                blending: THREE.AdditiveBlending
+                transparent: true, opacity: 0.9, color: CONFIG.colors.earth,
+                blending: THREE.AdditiveBlending, side: THREE.FrontSide
             })
         );
         earthGroup.add(earthMesh);
 
-        const earthWire = new THREE.LineSegments(
-            new THREE.WireframeGeometry(new THREE.SphereGeometry(CONFIG.earthRadius + 0.2, 32, 32)),
-            new THREE.LineBasicMaterial({ color: 0x44d7ff, transparent: true, opacity: 0.1 })
+        const earthGrid = new THREE.LineSegments(
+            new THREE.WireframeGeometry(new THREE.SphereGeometry(CONFIG.earthRadius + 0.1, 24, 24)),
+            new THREE.LineBasicMaterial({ color: CONFIG.colors.grid, transparent: true, opacity: 0.15 })
         );
-        earthGroup.add(earthWire);
+        earthGroup.add(earthGrid);
+
+        const userMarker = new THREE.Mesh(
+            new THREE.SphereGeometry(0.4, 16, 16),
+            new THREE.MeshBasicMaterial({ color: CONFIG.colors.marker })
+        );
+        userMarker.visible = false;
+        earthGroup.add(userMarker);
 
         // --- 4. DATA UTILS ---
         function getStarPosition(raHours, decDeg, radius) {
@@ -229,10 +216,12 @@
         function generateProceduralName(pos, mag) {
             const r = Math.round(pos.length()).toString().padStart(2, '0').substring(0, 2);
             const m = (mag * 10).toFixed(0).toString().padStart(2, '0').substring(0, 2);
-            return `SEC-${r}-X${m}`;
+            const decDeg = Math.abs(90 - (Math.acos(pos.y / pos.length()) * 180 / Math.PI));
+            const d = Math.round(decDeg).toString().padStart(2, '0').substring(0, 2);
+            return `Rad${r}Mag${m}Dec${d}`;
         }
 
-        // --- 5. HIGH-PERFORMANCE STAR GENERATION ---
+        // --- 5. STAR GENERATION (Original White Theme) ---
         const allStarData = []; 
         const constellationPathPoints = [];
         const constellationByName = {};
@@ -240,16 +229,13 @@
         const geoPositions = [];
         const geoSizes = [];
         const geoAlphas = [];
-        const geoColors = []; // NEW: For dynamic data coloring
 
-        // 5a. Constellation Stars
         CONSTELLATION_DATA.forEach((star) => {
             const pos = getStarPosition(star.ra, star.dec, CONFIG.skyRadius);
             constellationByName[star.name] = pos.clone();
             geoPositions.push(pos.x, pos.y, pos.z);
-            geoSizes.push(Math.max(6.0, 10.0 - star.mag)); // Slightly larger
+            geoSizes.push(Math.max(5.0, 8.0 - star.mag));
             geoAlphas.push(1.0);
-            geoColors.push(1.0, 1.0, 1.0); // Start white
 
             allStarData.push({
                 originalPos: pos.clone(),
@@ -257,7 +243,6 @@
                 mag: star.mag.toFixed(2),
                 dec: star.dec.toFixed(1),
                 rad: CONFIG.skyRadius.toFixed(0),
-                class: 'PRIMUS',
                 labelObj: null
             });
 
@@ -274,7 +259,6 @@
             if (constellationByName[name]) constellationPathPoints.push(constellationByName[name].clone());
         });
 
-        // 5b. Background Stars
         for (let i = 0; i < CONFIG.starCount; i++) {
             const r = CONFIG.skyRadius * (0.85 + Math.random() * 0.3);
             const theta = 2 * Math.PI * Math.random();
@@ -288,10 +272,8 @@
             geoPositions.push(x, y, z);
             
             const mag = Math.random() * 6;
-            const size = Math.random() * 2.5 + 0.5;
-            geoSizes.push(size);
-            geoAlphas.push(Math.random() * 0.7 + 0.1);
-            geoColors.push(1.0, 1.0, 1.0); // Start white
+            geoSizes.push(Math.random() * 2.0 + 0.5);
+            geoAlphas.push(Math.random() * 0.6 + 0.1);
 
             allStarData.push({
                 originalPos: pos.clone(),
@@ -299,44 +281,33 @@
                 mag: mag.toFixed(2),
                 dec: Math.abs(90 - (phi * 180 / Math.PI)).toFixed(1), 
                 rad: r.toFixed(1),
-                class: mag < 2 ? 'ALPHA' : (mag < 4 ? 'BETA' : 'GAMMA'),
                 labelObj: null
             });
         }
 
-        // 5c. Custom Advanced Shader Geometry
         const starGeometry = new THREE.BufferGeometry();
         starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(geoPositions, 3));
         starGeometry.setAttribute('aBaseSize', new THREE.Float32BufferAttribute(geoSizes, 1));
         starGeometry.setAttribute('aAlpha', new THREE.Float32BufferAttribute(geoAlphas, 1));
-        starGeometry.setAttribute('aColor', new THREE.Float32BufferAttribute(geoColors, 3));
 
         const starMaterial = new THREE.ShaderMaterial({
             uniforms: { time: { value: 0 }, pointTexture: { value: starTexture } },
             vertexShader: `
-                attribute float aBaseSize; 
-                attribute float aAlpha; 
-                attribute vec3 aColor;
-                varying float vAlpha;
-                varying vec3 vColor;
+                attribute float aBaseSize; attribute float aAlpha; varying float vAlpha;
                 void main() {
                     vAlpha = aAlpha;
-                    vColor = aColor;
                     vec4 mvPos = modelViewMatrix * vec4(position, 1.0);
                     gl_PointSize = aBaseSize * (300.0 / -mvPos.z);
                     gl_Position = projectionMatrix * mvPos;
                 }
             `,
             fragmentShader: `
-                uniform float time; 
-                uniform sampler2D pointTexture; 
-                varying float vAlpha;
-                varying vec3 vColor;
+                uniform float time; uniform sampler2D pointTexture; varying float vAlpha;
                 void main() {
-                    vec4 texColor = texture2D(pointTexture, gl_PointCoord);
-                    if (texColor.a < 0.5) discard;
-                    float twinkle = 0.7 + 0.3 * sin(time * 3.0 + gl_FragCoord.x);
-                    gl_FragColor = vec4(vColor, vAlpha * texColor.a * twinkle);
+                    vec4 color = texture2D(pointTexture, gl_PointCoord);
+                    if (color.a < 0.5) discard;
+                    float twinkle = 0.8 + 0.2 * sin(time * 5.0 + gl_FragCoord.x);
+                    gl_FragColor = vec4(vec3(1.0), vAlpha * color.a * twinkle);
                 }
             `,
             transparent: true, depthWrite: false, blending: THREE.AdditiveBlending
@@ -346,14 +317,14 @@
         earthGroup.add(starSystem);
 
         const path = new THREE.CatmullRomCurve3(constellationPathPoints, true);
-        const tubeGeometry = new THREE.TubeGeometry(path, 64, 0.15, 8, true);
-        const tubeMaterial = new THREE.MeshBasicMaterial({ color: CONFIG.colors.lines, transparent: true, opacity: 0.6 });
+        const tubeGeometry = new THREE.TubeGeometry(path, 64, 0.25, 8, true);
+        const tubeMaterial = new THREE.MeshBasicMaterial({ color: CONFIG.colors.lines, transparent: true, opacity: 0.9 });
         const constellationLines = new THREE.Mesh(tubeGeometry, tubeMaterial);
         earthGroup.add(constellationLines);
 
-        // --- 6. OPTIMIZED RAYCASTER (HOVER LOGIC) ---
+        // --- 6. RAYCASTER (HOVER LOGIC) ---
         const raycaster = new THREE.Raycaster();
-        raycaster.params.Points.threshold = 1.5; // Generous hit area
+        raycaster.params.Points.threshold = 1.5;
         const mouse = new THREE.Vector2();
         
         const intelCard = document.getElementById('star-intel');
@@ -361,7 +332,6 @@
         const elMag = document.getElementById('intel-mag');
         const elDec = document.getElementById('intel-dec');
         const elRad = document.getElementById('intel-rad');
-        const elClass = document.getElementById('intel-class');
 
         window.addEventListener('mousemove', (event) => {
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
@@ -370,9 +340,12 @@
             intelCard.style.top = (event.clientY + 20) + 'px';
         });
 
-        // --- 7. ANIMATION STATE & SOM LOGIC ---
+        // --- 7. LOCATION & SOM LOGIC ---
         let state = {
             locating: true,
+            rotatingToUser: false,
+            targetY: 0,
+            locationReady: false,
             wrappingSpace: false,
             somProgress: 0.0
         };
@@ -382,75 +355,99 @@
         const wrapBtn = document.getElementById('wrap-btn');
 
         const somTargetPositions = new Float32Array(geoPositions.length);
-        const somTargetColors = new Float32Array(geoPositions.length);
         
         let startCameraPos = new THREE.Vector3();
-        let targetCameraPos = new THREE.Vector3(0, 0, 100); // Backed up slightly
-        let startEarthQuat = new THREE.Quaternion();
-        let targetEarthQuat = new THREE.Quaternion().identity(); 
+        let targetCameraPos = new THREE.Vector3(0, 0, 80); // Moving camera slightly back for good framing
         let startControlsTarget = new THREE.Vector3();
 
+        function updateLocation(lat, lon) {
+            const phi = (90 - lat) * (Math.PI / 180);
+            const theta = (lon + 180) * (Math.PI / 180); 
+            
+            const x = -(CONFIG.earthRadius * Math.sin(phi) * Math.cos(theta));
+            const z = (CONFIG.earthRadius * Math.sin(phi) * Math.sin(theta));
+            const y = (CONFIG.earthRadius * Math.cos(phi));
+            
+            userMarker.position.set(x, y, z);
+            userMarker.visible = true;
+
+            state.targetY = -(lon * Math.PI / 180) - (Math.PI / 2);
+            state.locating = false;
+            state.rotatingToUser = true;
+            state.locationReady = true;
+            STATUS.textContent = `Location Locked: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+            STATUS.style.borderLeftColor = "#00ffff"; 
+            
+            identityBtn.style.display = 'block';
+        }
+
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (p) => updateLocation(p.coords.latitude, p.coords.longitude),
+                (e) => updateLocation(22.9, 79.0) // Default Fallback Coordinates
+            );
+        } else {
+            setTimeout(() => updateLocation(22.9, 79.0), 1500);
+        }
+
+        // Calculates Grid while resolving Earth's Rotation
         function prepareSOM() {
             startCameraPos.copy(camera.position);
-            startEarthQuat.copy(earthGroup.quaternion);
             startControlsTarget.copy(controls.target);
             
-            // 1. Calculate perfectly responsive grid
-            const zPlane = 30; // Float the grid in front of Earth (Earth is radius 15)
-            const distFromCam = targetCameraPos.z - zPlane; // 100 - 30 = 70
+            // 1. Calculate screen bounds in World Space
+            const gridZ = 35; // Position the grid plane in world coordinates
+            const distFromCam = targetCameraPos.z - gridZ; // 80 - 35 = 45
             
-            // Visible height at the Z plane
             const vFOV = camera.fov * THREE.MathUtils.DEG2RAD;
             const visibleHeight = 2 * Math.tan(vFOV / 2) * distFromCam;
             const visibleWidth = visibleHeight * camera.aspect;
 
-            // Use 90% of screen to create a nice futuristic border
-            const gridW = visibleWidth * 0.90;
-            const gridH = visibleHeight * 0.90;
+            const gridW = visibleWidth * 0.85; // 85% padding margin
+            const gridH = visibleHeight * 0.85;
             
             const startX = -gridW / 2;
             const startY = gridH / 2;
 
-            // Sort logic to cluster stars visually
+            // 2. Sort stars visually based on World Y position
+            earthGroup.updateMatrixWorld();
             const sortableStars = [];
             for (let i = 0; i < allStarData.length; i++) {
-                sortableStars.push({ index: i, val: allStarData[i].originalPos.y });
+                const worldPos = allStarData[i].originalPos.clone().applyMatrix4(earthGroup.matrixWorld);
+                sortableStars.push({ index: i, val: worldPos.y });
             }
             sortableStars.sort((a, b) => b.val - a.val);
 
-            // Responsive Columns
+            // 3. Grid sizing based on device
             const isPortrait = window.innerHeight > window.innerWidth;
-            const cols = isPortrait ? 30 : 60; 
+            const cols = isPortrait ? 25 : 55; 
             const rows = Math.ceil(sortableStars.length / cols);
             
             const stepX = gridW / cols;
             const stepY = gridH / rows;
 
-            // 2. Map coordinates and colors
+            const tempWorldPos = new THREE.Vector3();
+
+            // 4. Map into Earth's Local Coordinate Space to fix the rotation warp!
             sortableStars.forEach((star, arrayIndex) => {
                 const col = arrayIndex % cols;
                 const row = Math.floor(arrayIndex / cols);
 
-                const dataIndex = star.index * 3;
-                // Target Position
-                somTargetPositions[dataIndex]     = startX + (col * stepX) + (stepX/2);
-                somTargetPositions[dataIndex + 1] = startY - (row * stepY) - (stepY/2);
-                somTargetPositions[dataIndex + 2] = zPlane; // Pushed in front of earth
+                // This is where we want the star to end up visually (World Space)
+                const targetWorldX = startX + (col * stepX) + (stepX/2);
+                const targetWorldY = startY - (row * stepY) - (stepY/2);
+                tempWorldPos.set(targetWorldX, targetWorldY, gridZ);
+                
+                // CRUCIAL: Convert World Space back to the Earth's Local Space.
+                // This means even though Earth is rotated to face you, the stars align to the camera perfectly.
+                earthGroup.worldToLocal(tempWorldPos);
 
-                // Target Color Gradient (Cyan to Magenta based on grid position)
-                const colorFactor = (col / cols) * 0.8 + (row / rows) * 0.2; 
-                const color = new THREE.Color().setHSL(0.5 + colorFactor * 0.4, 1.0, 0.6); // Cyberpunk gradient
-                somTargetColors[dataIndex]     = color.r;
-                somTargetColors[dataIndex + 1] = color.g;
-                somTargetColors[dataIndex + 2] = color.b;
+                const dataIndex = star.index * 3;
+                somTargetPositions[dataIndex]     = tempWorldPos.x;
+                somTargetPositions[dataIndex + 1] = tempWorldPos.y;
+                somTargetPositions[dataIndex + 2] = tempWorldPos.z;
             });
         }
-
-        loadingManager.onLoad = () => {
-            identityBtn.style.display = 'block';
-            STATUS.textContent = 'Systems Online: Awaiting Operator Identity';
-            state.locating = false; 
-        };
 
         // --- BUTTON EVENTS ---
         identityBtn.addEventListener('click', () => {
@@ -458,8 +455,6 @@
             const starName = randomStar.name || generateProceduralName(randomStar.originalPos, randomStar.mag);
             
             STATUS.textContent = `Welcome, Commander [${starName}]`;
-            STATUS.style.borderLeftColor = '#00ffff';
-            STATUS.style.color = '#00ffff';
             identityBtn.style.display = 'none';
             
             setTimeout(() => { wrapBtn.style.display = 'block'; }, 800);
@@ -468,17 +463,14 @@
         wrapBtn.addEventListener('click', () => {
             wrapBtn.style.display = 'none';
             STATUS.textContent = 'Processing Topology: Locking Controls...';
-            STATUS.style.borderLeftColor = '#ff00ff';
-            STATUS.style.color = '#ffdbfa';
             
-            // STRICT LOCK: Ensure screen fits perfectly
+            // Lock controls completely
             controls.enabled = false;
 
             prepareSOM();
             state.wrappingSpace = true;
         });
 
-        // Easing Function
         const easeInOutCubic = t => t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 
         // --- 8. ANIMATION LOOP ---
@@ -486,10 +478,9 @@
             requestAnimationFrame(animate);
             starMaterial.uniforms.time.value = clock.getElapsedTime();
 
-            // --- HIGH PERFORMANCE RAYCASTER ---
-            if (!state.locating) {
+            // Perform Raycasting ONLY when not animating (Massive Performance Boost)
+            if (!state.locating && !state.rotatingToUser && !state.wrappingSpace) {
                 raycaster.setFromCamera(mouse, camera);
-                // Important: Update MatrixWorld before raycasting
                 earthGroup.updateMatrixWorld();
                 
                 const intersects = raycaster.intersectObject(starSystem);
@@ -506,24 +497,27 @@
                     elMag.textContent = star.mag;
                     elDec.textContent = star.dec;
                     elRad.textContent = star.rad;
-                    
-                    // Assign class colors
-                    elClass.textContent = star.class;
-                    if(star.class === 'PRIMUS') elClass.style.color = '#ff00ff';
-                    else if(star.class === 'ALPHA') elClass.style.color = '#00ffff';
-                    else elClass.style.color = '#aaaaaa';
-
                 } else {
                     intelCard.style.display = 'none';
                     document.body.style.cursor = 'default';
                 }
+            } else {
+                intelCard.style.display = 'none';
+                document.body.style.cursor = 'default';
             }
 
             // --- STATE ANIMATIONS ---
             if (state.locating) {
                 earthGroup.rotation.y += 0.05; 
+            } else if (state.rotatingToUser) {
+                let currentY = earthGroup.rotation.y;
+                let diff = state.targetY - currentY;
+                while (diff > Math.PI) diff -= Math.PI * 2;
+                while (diff < -Math.PI) diff += Math.PI * 2;
+                earthGroup.rotation.y += diff * 0.05;
+                if (Math.abs(diff) < 0.001) state.rotatingToUser = false;
             } else if (state.wrappingSpace) {
-                state.somProgress += 0.006; 
+                state.somProgress += 0.008; // Slightly faster transition
                 if (state.somProgress >= 1.0) state.somProgress = 1.0;
                 
                 const ease = easeInOutCubic(state.somProgress);
@@ -532,32 +526,23 @@
                 camera.position.lerpVectors(startCameraPos, targetCameraPos, ease);
                 controls.target.lerpVectors(startControlsTarget, new THREE.Vector3(0,0,0), ease);
                 
-                // 2. Slerp earth rotation perfectly to front
-                earthGroup.quaternion.slerpQuaternions(startEarthQuat, targetEarthQuat, ease);
+                // 2. We DO NOT rotate the earth here. It stays stationary based on user location.
 
-                // 3. Lerp Star Positions and Colors
+                // 3. Lerp Star Positions to the pre-calculated local targets
                 const positions = starGeometry.attributes.position.array;
-                const colors = starGeometry.attributes.aColor.array;
 
                 for (let i = 0; i < allStarData.length; i++) {
                     const dataIdx = i * 3;
-                    
-                    // Positions
                     positions[dataIdx]   = THREE.MathUtils.lerp(allStarData[i].originalPos.x, somTargetPositions[dataIdx], ease);
                     positions[dataIdx+1] = THREE.MathUtils.lerp(allStarData[i].originalPos.y, somTargetPositions[dataIdx+1], ease);
                     positions[dataIdx+2] = THREE.MathUtils.lerp(allStarData[i].originalPos.z, somTargetPositions[dataIdx+2], ease);
-                    
-                    // Colors (White to Gradient)
-                    colors[dataIdx]   = THREE.MathUtils.lerp(1.0, somTargetColors[dataIdx], ease);
-                    colors[dataIdx+1] = THREE.MathUtils.lerp(1.0, somTargetColors[dataIdx+1], ease);
-                    colors[dataIdx+2] = THREE.MathUtils.lerp(1.0, somTargetColors[dataIdx+2], ease);
                 }
                 starGeometry.attributes.position.needsUpdate = true;
-                starGeometry.attributes.aColor.needsUpdate = true;
                 
-                // Fade out 3D elements
-                constellationLines.material.opacity = 0.6 * (1 - ease);
-                earthWire.material.opacity = 0.1 * (1 - ease);
+                // Fade out 3D elements smoothly
+                constellationLines.material.opacity = 0.9 * (1 - ease);
+                earthGrid.material.opacity = 0.15 * (1 - ease);
+                userMarker.material.opacity = 1.0 * (1 - ease);
                 allStarData.forEach(star => {
                     if (star.labelObj && star.labelObj.element) {
                         star.labelObj.element.style.opacity = 0.9 * (1 - ease);
@@ -567,9 +552,11 @@
                 if (state.somProgress === 1.0) {
                     state.wrappingSpace = false;
                     STATUS.textContent = 'Topology Mapped: Multi-Dimensional Array Active';
+                    // Recompute bounding sphere once at the end so hover works correctly on the flat grid
+                    starGeometry.computeBoundingSphere(); 
                 }
-            } else if (state.somProgress === 0) {
-                earthGroup.rotation.y += 0.0005;
+            } else if (state.somProgress === 0 && state.locationReady) {
+                // Earth is stationary with user location as center. No idle rotation.
             }
 
             if(controls.enabled) controls.update();
@@ -583,22 +570,17 @@
             renderer.setSize(window.innerWidth, window.innerHeight);
             labelRenderer.setSize(window.innerWidth, window.innerHeight);
             
-            // Auto-correct grid size if window resizes while mapped
             if(state.somProgress === 1.0) {
-                prepareSOM(); // Recalculate aspect-perfect bounds
+                prepareSOM(); 
                 const positions = starGeometry.attributes.position.array;
-                const colors = starGeometry.attributes.aColor.array;
                 for (let i = 0; i < allStarData.length; i++) {
                     const dataIdx = i * 3;
                     positions[dataIdx] = somTargetPositions[dataIdx];
                     positions[dataIdx+1] = somTargetPositions[dataIdx+1];
                     positions[dataIdx+2] = somTargetPositions[dataIdx+2];
-                    colors[dataIdx] = somTargetColors[dataIdx];
-                    colors[dataIdx+1] = somTargetColors[dataIdx+1];
-                    colors[dataIdx+2] = somTargetColors[dataIdx+2];
                 }
                 starGeometry.attributes.position.needsUpdate = true;
-                starGeometry.attributes.aColor.needsUpdate = true;
+                starGeometry.computeBoundingSphere();
             }
         });
 
