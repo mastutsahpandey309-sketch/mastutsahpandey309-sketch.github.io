@@ -129,7 +129,7 @@
             colors: {
                 earth: 0xaaaaaa,
                 grid: 0xffffff,
-                marker: 0x44d7ff, // Cyan marker for user location
+                marker: 0x44d7ff,
                 lines: 0x00ffff,
             }
         };
@@ -221,7 +221,7 @@
             return `Rad${r}Mag${m}Dec${d}`;
         }
 
-        // --- 5. STAR GENERATION (Original White Theme) ---
+        // --- 5. STAR GENERATION ---
         const allStarData = []; 
         const constellationPathPoints = [];
         const constellationByName = {};
@@ -322,6 +322,11 @@
         const constellationLines = new THREE.Mesh(tubeGeometry, tubeMaterial);
         earthGroup.add(constellationLines);
 
+        // --- PERFORMANCE OPTIMIZATION ARRAYS ---
+        // Storing pure flat arrays for lightning-fast animation calculation
+        const startPositionsArray = new Float32Array(geoPositions);
+        const somTargetPositionsArray = new Float32Array(geoPositions.length);
+
         // --- 6. RAYCASTER (HOVER LOGIC) ---
         const raycaster = new THREE.Raycaster();
         raycaster.params.Points.threshold = 1.5;
@@ -354,13 +359,11 @@
         const identityBtn = document.getElementById('identity-btn');
         const wrapBtn = document.getElementById('wrap-btn');
 
-        const somTargetPositions = new Float32Array(geoPositions.length);
-        
         let startCameraPos = new THREE.Vector3();
-        let targetCameraPos = new THREE.Vector3(0, 0, 80); // Moving camera slightly back for good framing
+        let targetCameraPos = new THREE.Vector3(0, 0, 80); 
         let startControlsTarget = new THREE.Vector3();
 
-        function updateLocation(lat, lon) {
+        function updateLocation(lat, lon, isFallback = false) {
             const phi = (90 - lat) * (Math.PI / 180);
             const theta = (lon + 180) * (Math.PI / 180); 
             
@@ -375,41 +378,45 @@
             state.locating = false;
             state.rotatingToUser = true;
             state.locationReady = true;
-            STATUS.textContent = `Location Locked: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
-            STATUS.style.borderLeftColor = "#00ffff"; 
             
+            if(isFallback) {
+                STATUS.textContent = `Default Location Locked: Kareli (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
+            } else {
+                STATUS.textContent = `Location Locked: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
+            }
+            
+            STATUS.style.borderLeftColor = "#00ffff"; 
             identityBtn.style.display = 'block';
         }
 
+        // Instantly fallback to Kareli if browser blocks local file API
         if (navigator.geolocation) {
             navigator.geolocation.getCurrentPosition(
                 (p) => updateLocation(p.coords.latitude, p.coords.longitude),
-                (e) => updateLocation(22.9, 79.0) // Default Fallback Coordinates
+                (e) => updateLocation(22.92, 79.06, true), // Kareli Fallback
+                { timeout: 3000 }
             );
         } else {
-            setTimeout(() => updateLocation(22.9, 79.0), 1500);
+            updateLocation(22.92, 79.06, true);
         }
 
-        // Calculates Grid while resolving Earth's Rotation
         function prepareSOM() {
             startCameraPos.copy(camera.position);
             startControlsTarget.copy(controls.target);
             
-            // 1. Calculate screen bounds in World Space
-            const gridZ = 35; // Position the grid plane in world coordinates
-            const distFromCam = targetCameraPos.z - gridZ; // 80 - 35 = 45
+            const gridZ = 35; 
+            const distFromCam = targetCameraPos.z - gridZ; 
             
             const vFOV = camera.fov * THREE.MathUtils.DEG2RAD;
             const visibleHeight = 2 * Math.tan(vFOV / 2) * distFromCam;
             const visibleWidth = visibleHeight * camera.aspect;
 
-            const gridW = visibleWidth * 0.85; // 85% padding margin
+            const gridW = visibleWidth * 0.85; 
             const gridH = visibleHeight * 0.85;
             
             const startX = -gridW / 2;
             const startY = gridH / 2;
 
-            // 2. Sort stars visually based on World Y position
             earthGroup.updateMatrixWorld();
             const sortableStars = [];
             for (let i = 0; i < allStarData.length; i++) {
@@ -418,7 +425,6 @@
             }
             sortableStars.sort((a, b) => b.val - a.val);
 
-            // 3. Grid sizing based on device
             const isPortrait = window.innerHeight > window.innerWidth;
             const cols = isPortrait ? 25 : 55; 
             const rows = Math.ceil(sortableStars.length / cols);
@@ -428,24 +434,20 @@
 
             const tempWorldPos = new THREE.Vector3();
 
-            // 4. Map into Earth's Local Coordinate Space to fix the rotation warp!
             sortableStars.forEach((star, arrayIndex) => {
                 const col = arrayIndex % cols;
                 const row = Math.floor(arrayIndex / cols);
 
-                // This is where we want the star to end up visually (World Space)
                 const targetWorldX = startX + (col * stepX) + (stepX/2);
                 const targetWorldY = startY - (row * stepY) - (stepY/2);
                 tempWorldPos.set(targetWorldX, targetWorldY, gridZ);
                 
-                // CRUCIAL: Convert World Space back to the Earth's Local Space.
-                // This means even though Earth is rotated to face you, the stars align to the camera perfectly.
                 earthGroup.worldToLocal(tempWorldPos);
 
                 const dataIndex = star.index * 3;
-                somTargetPositions[dataIndex]     = tempWorldPos.x;
-                somTargetPositions[dataIndex + 1] = tempWorldPos.y;
-                somTargetPositions[dataIndex + 2] = tempWorldPos.z;
+                somTargetPositionsArray[dataIndex]     = tempWorldPos.x;
+                somTargetPositionsArray[dataIndex + 1] = tempWorldPos.y;
+                somTargetPositionsArray[dataIndex + 2] = tempWorldPos.z;
             });
         }
 
@@ -464,7 +466,6 @@
             wrapBtn.style.display = 'none';
             STATUS.textContent = 'Processing Topology: Locking Controls...';
             
-            // Lock controls completely
             controls.enabled = false;
 
             prepareSOM();
@@ -478,7 +479,6 @@
             requestAnimationFrame(animate);
             starMaterial.uniforms.time.value = clock.getElapsedTime();
 
-            // Perform Raycasting ONLY when not animating (Massive Performance Boost)
             if (!state.locating && !state.rotatingToUser && !state.wrappingSpace) {
                 raycaster.setFromCamera(mouse, camera);
                 earthGroup.updateMatrixWorld();
@@ -517,7 +517,7 @@
                 earthGroup.rotation.y += diff * 0.05;
                 if (Math.abs(diff) < 0.001) state.rotatingToUser = false;
             } else if (state.wrappingSpace) {
-                state.somProgress += 0.008; // Slightly faster transition
+                state.somProgress += 0.008; 
                 if (state.somProgress >= 1.0) state.somProgress = 1.0;
                 
                 const ease = easeInOutCubic(state.somProgress);
@@ -526,20 +526,18 @@
                 camera.position.lerpVectors(startCameraPos, targetCameraPos, ease);
                 controls.target.lerpVectors(startControlsTarget, new THREE.Vector3(0,0,0), ease);
                 
-                // 2. We DO NOT rotate the earth here. It stays stationary based on user location.
+                // CRUCIAL TILT FIX: This forces the camera to look straight ahead, perfectly parallel to the grid
+                camera.lookAt(controls.target);
 
-                // 3. Lerp Star Positions to the pre-calculated local targets
+                // 2. High-Performance Array Lerping (Bypasses CPU drag)
                 const positions = starGeometry.attributes.position.array;
-
-                for (let i = 0; i < allStarData.length; i++) {
-                    const dataIdx = i * 3;
-                    positions[dataIdx]   = THREE.MathUtils.lerp(allStarData[i].originalPos.x, somTargetPositions[dataIdx], ease);
-                    positions[dataIdx+1] = THREE.MathUtils.lerp(allStarData[i].originalPos.y, somTargetPositions[dataIdx+1], ease);
-                    positions[dataIdx+2] = THREE.MathUtils.lerp(allStarData[i].originalPos.z, somTargetPositions[dataIdx+2], ease);
+                for (let i = 0; i < positions.length; i++) {
+                    // Start Pos + (Target Pos - Start Pos) * Ease
+                    positions[i] = startPositionsArray[i] + (somTargetPositionsArray[i] - startPositionsArray[i]) * ease;
                 }
                 starGeometry.attributes.position.needsUpdate = true;
                 
-                // Fade out 3D elements smoothly
+                // Fade out 3D elements
                 constellationLines.material.opacity = 0.9 * (1 - ease);
                 earthGrid.material.opacity = 0.15 * (1 - ease);
                 userMarker.material.opacity = 1.0 * (1 - ease);
@@ -552,11 +550,8 @@
                 if (state.somProgress === 1.0) {
                     state.wrappingSpace = false;
                     STATUS.textContent = 'Topology Mapped: Multi-Dimensional Array Active';
-                    // Recompute bounding sphere once at the end so hover works correctly on the flat grid
                     starGeometry.computeBoundingSphere(); 
                 }
-            } else if (state.somProgress === 0 && state.locationReady) {
-                // Earth is stationary with user location as center. No idle rotation.
             }
 
             if(controls.enabled) controls.update();
@@ -573,11 +568,8 @@
             if(state.somProgress === 1.0) {
                 prepareSOM(); 
                 const positions = starGeometry.attributes.position.array;
-                for (let i = 0; i < allStarData.length; i++) {
-                    const dataIdx = i * 3;
-                    positions[dataIdx] = somTargetPositions[dataIdx];
-                    positions[dataIdx+1] = somTargetPositions[dataIdx+1];
-                    positions[dataIdx+2] = somTargetPositions[dataIdx+2];
+                for (let i = 0; i < positions.length; i++) {
+                    positions[i] = somTargetPositionsArray[i];
                 }
                 starGeometry.attributes.position.needsUpdate = true;
                 starGeometry.computeBoundingSphere();
