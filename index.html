@@ -23,6 +23,7 @@
             backdrop-filter: blur(4px);
             box-shadow: 0 0 15px rgba(128, 255, 128, 0.2);
             border-radius: 0 4px 4px 0;
+            transition: border-color 0.5s;
         }
 
         /* Hover Data Card */
@@ -62,30 +63,45 @@
             pointer-events: none; 
             white-space: nowrap;
             opacity: 0.9;
+            transition: opacity 1s;
         }
 
-        #align-btn {
+        .btn-core {
             position: absolute;
             left: 50%;
             bottom: 26px;
             transform: translateX(-50%);
             padding: 12px 22px;
-            border: 1px solid #44d7ff;
             border-radius: 999px;
-            background: rgba(0, 18, 32, 0.9);
-            color: #d8f7ff;
             letter-spacing: 1px;
             text-transform: uppercase;
             font-weight: bold;
             cursor: pointer;
-            box-shadow: 0 0 12px rgba(68, 215, 255, 0.45);
             display: none;
             pointer-events: auto;
+            transition: all 0.3s ease;
         }
 
+        #align-btn {
+            border: 1px solid #44d7ff;
+            background: rgba(0, 18, 32, 0.9);
+            color: #d8f7ff;
+            box-shadow: 0 0 12px rgba(68, 215, 255, 0.45);
+        }
         #align-btn:hover {
             background: rgba(0, 35, 55, 0.95);
             box-shadow: 0 0 16px rgba(68, 215, 255, 0.75);
+        }
+
+        #wrap-btn {
+            border: 1px solid #ff7df5;
+            background: rgba(32, 0, 32, 0.9);
+            color: #ffdbfa;
+            box-shadow: 0 0 12px rgba(255, 125, 245, 0.45);
+        }
+        #wrap-btn:hover {
+            background: rgba(55, 0, 55, 0.95);
+            box-shadow: 0 0 16px rgba(255, 125, 245, 0.75);
         }
     </style>
 </head>
@@ -93,7 +109,8 @@
 
     <div id="ui-layer">
         <div id="status">System Initializing...</div>
-        <button id="align-btn">Align to Cepheus</button>
+        <button id="align-btn" class="btn-core">Align to Cepheus</button>
+        <button id="wrap-btn" class="btn-core">Wrap Space Around You</button>
     </div>
 
     <div id="star-intel">
@@ -138,13 +155,6 @@
             {"ra":22.82802, "dec":66.200408, "mag":3.5,  "name":"32Iot Cep"}
         ];
         const CONSTELLATION_DRAW_ORDER = ['Errai', 'Alfirk', '32Iot Cep', 'Alderamin', 'Zeta Cephai'];
-        const ALIGN_TARGETS = {
-            'Errai': new THREE.Vector2(0.00, -0.62),
-            'Alfirk': new THREE.Vector2(-0.10, -0.79),
-            '32Iot Cep': new THREE.Vector2(0.10, -0.79),
-            'Zeta Cephai': new THREE.Vector2(-0.08, -0.92),
-            'Alderamin': new THREE.Vector2(0.08, -0.92)
-        };
 
         // --- 2. SCENE SETUP ---
         const scene = new THREE.Scene();
@@ -252,11 +262,12 @@
             geoAlphas.push(1.0);
 
             allStarData.push({
-                position: pos.clone(), // Local position
+                position: pos.clone(),
                 name: star.name,
                 mag: star.mag,
                 dec: star.dec.toFixed(1),
-                rad: CONFIG.skyRadius.toFixed(0)
+                rad: CONFIG.skyRadius.toFixed(0),
+                labelObj: null
             });
 
             const div = document.createElement('div');
@@ -264,7 +275,8 @@
             div.textContent = star.name;
             const label = new CSS2DObject(div);
             label.position.copy(pos);
-            earthGroup.add(label); // FIX: Parent to Earth so they rotate together
+            earthGroup.add(label);
+            allStarData[allStarData.length - 1].labelObj = label; // Save ref to fade later
         });
 
         CONSTELLATION_DRAW_ORDER.forEach((name) => {
@@ -293,7 +305,7 @@
 
             if (size > 1.0) {
                 allStarData.push({
-                    position: pos, // Local Position
+                    position: pos, 
                     name: null, 
                     mag: mag,
                     dec: null, 
@@ -332,7 +344,7 @@
         });
 
         const starSystem = new THREE.Points(starGeometry, starMaterial);
-        earthGroup.add(starSystem); // FIX: Parent to EarthGroup
+        earthGroup.add(starSystem);
 
         // 5d. Constellation Tube
         const path = new THREE.CatmullRomCurve3(constellationPathPoints, true);
@@ -341,7 +353,7 @@
             color: CONFIG.colors.lines, transparent: true, opacity: 0.9 
         });
         const constellationLines = new THREE.Mesh(tubeGeometry, tubeMaterial);
-        earthGroup.add(constellationLines); // FIX: Parent to EarthGroup
+        earthGroup.add(constellationLines);
 
         // --- 6. UI ELEMENTS ---
         const mouse = new THREE.Vector2();
@@ -358,7 +370,7 @@
             intelCard.style.top = (event.clientY + 20) + 'px';
         });
 
-        // --- 7. ANIMATION STATE ---
+        // --- 7. ANIMATION STATE & SOM LOGIC ---
         let state = {
             locating: true,
             rotatingToUser: false,
@@ -367,14 +379,73 @@
             locationReady: false,
             alignButtonShown: false,
             aligningCepheus: false,
-            alignTargetQuaternion: new THREE.Quaternion()
+            alignTargetQuaternion: new THREE.Quaternion(),
+            wrapButtonShown: false,
+            wrappingSpace: false,
+            somProgress: 0.0
         };
         const STATUS = document.getElementById('status');
         const alignBtn = document.getElementById('align-btn');
+        const wrapBtn = document.getElementById('wrap-btn');
+
         const cepheusCentroid = CONSTELLATION_DATA
             .map((star) => getStarPosition(star.ra, star.dec, CONFIG.skyRadius))
             .reduce((acc, p) => acc.add(p), new THREE.Vector3())
             .multiplyScalar(1 / CONSTELLATION_DATA.length);
+
+        const originalStarPositions = new Float32Array(geoPositions.length);
+        const somTargetPositions = new Float32Array(geoPositions.length);
+
+        function prepareSOM() {
+            const positions = starGeometry.attributes.position.array;
+            const sortableStars = [];
+
+            // 1. Capture current positions and group them for clustering
+            for (let i = 0; i < positions.length; i += 3) {
+                const x = positions[i];
+                const y = positions[i+1];
+                const z = positions[i+2];
+                originalStarPositions[i] = x;
+                originalStarPositions[i+1] = y;
+                originalStarPositions[i+2] = z;
+                
+                // We use 'y' coordinate to cluster similar stars together visually
+                sortableStars.push({ index: i, x, y, z });
+            }
+
+            // 2. Simulate "Competitive Learning" clustering by sorting the data
+            sortableStars.sort((a, b) => b.y - a.y);
+
+            // 3. Define the Holographic 16:9 Grid (Floating in front of Earth)
+            const cols = 64; 
+            const rows = Math.ceil(sortableStars.length / cols);
+            const gridWidth = 120;
+            const gridHeight = (gridWidth / 16) * 9; // 16:9 ratio
+            
+            const startX = -gridWidth / 2;
+            const startY = gridHeight / 2;
+            const stepX = gridWidth / cols;
+            const stepY = gridHeight / rows;
+
+            // Define the hologram plane depth (Z) relative to the rotated earth group
+            // We want it oriented towards the camera, but still part of the earthGroup
+            const hologramDistance = 45; 
+
+            // 4. Map the sorted stars into the grid
+            sortableStars.forEach((star, arrayIndex) => {
+                const col = arrayIndex % cols;
+                const row = Math.floor(arrayIndex / cols);
+
+                // Calculate local 2D flat coordinates
+                const targetX = startX + (col * stepX);
+                const targetY = startY - (row * stepY);
+                const targetZ = hologramDistance;
+
+                somTargetPositions[star.index] = targetX;
+                somTargetPositions[star.index + 1] = targetY;
+                somTargetPositions[star.index + 2] = targetZ;
+            });
+        }
 
         function maybeShowAlignButton() {
             if (state.assetsReady && state.locationReady && !state.alignButtonShown) {
@@ -406,10 +477,7 @@
 
             const orientedPoints = starPoints.map((p) => p.clone().applyQuaternion(qFace));
             const projected = orientedPoints.map((p, i) => ({
-                i,
-                p,
-                u: p.dot(camRight),
-                v: p.dot(camUp)
+                i, p, u: p.dot(camRight), v: p.dot(camUp)
             }));
 
             projected.sort((a, b) => a.v - b.v);
@@ -440,6 +508,15 @@
             alignBtn.style.display = 'none';
             STATUS.textContent = 'Aligning: Cepheus house lock...';
             STATUS.style.borderLeftColor = '#44d7ff';
+        });
+
+        wrapBtn.addEventListener('click', () => {
+            wrapBtn.style.display = 'none';
+            STATUS.textContent = 'Processing SOM: Reducing Dimensionality...';
+            STATUS.style.borderLeftColor = '#ff7df5';
+            
+            prepareSOM();
+            state.wrappingSpace = true;
         });
 
         function updateLocation(lat, lon) {
@@ -482,30 +559,22 @@
             const elapsed = clock.getElapsedTime();
             starMaterial.uniforms.time.value = elapsed;
 
-            // --- HOVER LOGIC (Synced with Earth Rotation) ---
+            // --- HOVER LOGIC ---
             let closestStar = null;
-            let minDist = 15; // Pixel tolerance
+            let minDist = 15; 
 
-            if (!state.locating) {
-                // Since earthGroup is rotating, we must update the MatrixWorld
+            if (!state.locating && !state.wrappingSpace && state.somProgress === 0) {
                 earthGroup.updateMatrixWorld();
 
                 for (let i = 0; i < allStarData.length; i++) {
                     const star = allStarData[i];
-                    
-                    // 1. Get Local Position
                     tempV.copy(star.position);
-                    
-                    // 2. Transform Local -> World (Apply Earth Rotation)
                     tempV.applyMatrix4(earthGroup.matrixWorld);
-
-                    // 3. Project World -> Screen
                     tempV.project(camera); 
 
                     if (tempV.z < 1) { 
                         const x = (tempV.x * .5 + .5) * window.innerWidth;
                         const y = -(tempV.y * .5 - .5) * window.innerHeight;
-                        
                         const mousePixelX = (mouse.x * .5 + .5) * window.innerWidth;
                         const mousePixelY = -(mouse.y * .5 - .5) * window.innerHeight;
 
@@ -521,7 +590,6 @@
                 }
             }
 
-            // Update UI
             if (closestStar) {
                 intelCard.style.display = 'block';
                 document.body.style.cursor = 'crosshair';
@@ -535,12 +603,10 @@
                 } else {
                     elName.textContent = generateProceduralName(closestStar.position, closestStar.mag);
                     elName.style.color = "#ffcc00"; 
-                    
                     elMag.textContent = closestStar.mag.toFixed(2);
                     const rVal = closestStar.position.length();
                     const phi = Math.acos(closestStar.position.y / rVal);
                     const decDeg = Math.abs(90 - (phi * 180 / Math.PI));
-                    
                     elDec.textContent = decDeg.toFixed(1);
                     elRad.textContent = rVal.toFixed(1);
                 }
@@ -549,8 +615,7 @@
                 document.body.style.cursor = 'default';
             }
 
-            // --- EARTH ANIMATION ---
-            // Stars now rotate automatically because they are children of earthGroup
+            // --- EARTH / SOM ANIMATION ---
             if (state.locating) {
                 earthGroup.rotation.y += 0.05;
             } else if (state.rotatingToUser) {
@@ -567,8 +632,49 @@
                     state.aligningCepheus = false;
                     STATUS.textContent = 'Cepheus aligned to bottom-center home shape';
                     STATUS.style.borderLeftColor = '#80ff80';
+                    
+                    if (!state.wrapButtonShown) {
+                        setTimeout(() => {
+                            wrapBtn.style.display = 'block';
+                            state.wrapButtonShown = true;
+                        }, 1000);
+                    }
                 }
-            } else {
+            } else if (state.wrappingSpace) {
+                // SOM Lerp Animation
+                state.somProgress += 0.005; 
+                if (state.somProgress >= 1.0) state.somProgress = 1.0;
+                
+                // Cubic ease-in-out curve
+                const ease = state.somProgress < 0.5 
+                    ? 4 * state.somProgress * state.somProgress * state.somProgress 
+                    : 1 - Math.pow(-2 * state.somProgress + 2, 3) / 2;
+
+                const positions = starGeometry.attributes.position.array;
+                for (let i = 0; i < positions.length; i++) {
+                    positions[i] = THREE.MathUtils.lerp(
+                        originalStarPositions[i], 
+                        somTargetPositions[i], 
+                        ease
+                    );
+                }
+                starGeometry.attributes.position.needsUpdate = true;
+                
+                // Fade out constellation lines and labels
+                constellationLines.material.opacity = 0.9 * (1 - ease);
+                allStarData.forEach(star => {
+                    if (star.labelObj && star.labelObj.element) {
+                        star.labelObj.element.style.opacity = 0.9 * (1 - ease);
+                    }
+                });
+
+                if (state.somProgress === 1.0) {
+                    state.wrappingSpace = false;
+                    STATUS.textContent = 'Topology Mapped: 2D Holographic Lattice Established';
+                    STATUS.style.borderLeftColor = '#ffdbfa';
+                }
+            } else if (state.somProgress === 0) {
+                // Only rotate naturally if we haven't wrapped space
                 earthGroup.rotation.y += 0.0003;
             }
 
